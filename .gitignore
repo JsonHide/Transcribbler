@@ -12,6 +12,9 @@ models/
 *.tar.bz2
 *.tar.gz
 
+# Implementation design notes & internal markdown documents
+TRANSCRIBBLER_IMPLEMENTATION*.md
+
 # Generated transcripts and export output
 transcripts/
 *.txt.bak

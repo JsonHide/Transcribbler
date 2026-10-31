@@ -18,6 +18,11 @@ if sys.platform == "win32":
         sys.stderr.reconfigure(encoding="utf-8")
     except Exception:
         pass
+    try:
+        import signal
+        signal.signal(signal.SIGBREAK, lambda s, f: (_ for _ in ()).throw(KeyboardInterrupt))
+    except Exception:
+        pass
 
 
 def run_cli() -> None:
@@ -107,7 +112,8 @@ def run_cli() -> None:
     try:
         session.start()
         print(f"Listening... (Translation: {session.tname}) | Output: {session.out_path}\n")
-        session.stop_event.wait()
+        while not session.stop_event.is_set():
+            session.stop_event.wait(0.5)
     except KeyboardInterrupt:
         print("\nStopping Transcribbler... draining pending transcriptions...")
     finally:
