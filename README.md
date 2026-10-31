@@ -21,6 +21,7 @@
   - **Cloud (Azure Translator / Google Cloud Translation)**: Dedicated high-quality Cantonese (`yue`) and Mandarin (`zh`) translation to English.
 - 🖥️ **Modern Desktop GUI (CustomTkinter)**:
   - **Dual-Column Split View (Default)**: Dedicated side-by-side feed with `ME` on the left and `OTHERS` on the right.
+  - **Live Channel Capture Toggles**: Dedicated **`[Disable]` / `[Enable]`** buttons on both `Microphone (ME)` and `Speaker / System (OTHERS)` to instantly pause and resume audio capturing on either channel in real time.
   - **Unified Timeline View**: One-click toggle to a single chronological stream with colored speaker badges.
   - **Source Filtering**: Filter on the fly between **All Sources**, **Microphone Only**, or **Speaker Only** (synchronized across both views).
   - **Live VAD Activity LEDs**: Pulsing visual indicators when speech is actively detected on either channel, backed by an auto-reset watchdog for silent audio streams.
@@ -117,6 +118,7 @@ python main.py
 ```
 
 - **Start Capture**: Click **▶ Start** to begin listening to your mic and system audio.
+- **Channel Mute / Pause**: Click **`[Disable]`** or **`[Enable]`** directly in either the `Microphone (ME)` or `Speaker / System (OTHERS)` header to pause or resume capturing that channel live without stopping the session.
 - **Switch Views**: Toggle between **Dual Column** (side-by-side) and **Unified Timeline** (single chronological stream).
 - **Source Filter**: Select **Microphone Only** or **Speaker Only** to isolate a single channel.
 - **Float Over Apps**: Check **Always on Top** to keep Transcribbler floating beside Zoom, Teams, Google Meet, or video players.
@@ -202,8 +204,9 @@ Transcripts are written to both the interface and `transcripts/transcript_YYYYMM
 
 ---
 
-## Release Highlights (v0.3.0)
+## Release Highlights
 
+- **Channel Capture Toggles (v0.4.0)**: Added live **`[Disable]` / `[Enable]`** buttons in the Microphone and Speaker headers to pause and resume audio capturing independently at the hardware/audio callback level.
 - **Graceful CLI Shutdown (v0.3.0)**: Fixed PowerShell `Ctrl+C` interruption by converting the uninterruptible wait into a periodic polling loop and adding Windows `SIGBREAK` signal mapping.
 - **Cleaner Transcripts when Translation is Off (v0.2.0)**: Suppressed redundant `EN:` duplicate lines when Translate is set to `off`.
 - **Repository Optimization (v0.3.0)**: Streamlined git repository by excluding internal implementation markdowns via `.gitignore`.

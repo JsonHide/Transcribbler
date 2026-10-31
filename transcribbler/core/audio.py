@@ -142,6 +142,13 @@ class Segmenter:
         self.silent = 0
         self.started = None
 
+    def reset(self) -> None:
+        """Clear all buffered frames and reset state (used when muted/disabled)."""
+        self.frames.clear()
+        self.pending = np.zeros(0, dtype=np.int16)
+        self.silent = 0
+        self.started = None
+
 
 def get_audio_devices(p: pyaudio.PyAudio) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Returns (input_mics, loopback_speakers)."""
@@ -211,6 +218,8 @@ class Capture:
         self.raw_queue: queue.Queue[Optional[bytes]] = queue.Queue()
         self.running = threading.Event()
         self.running.set()
+        self.enabled = threading.Event()
+        self.enabled.set()
 
         self.stream = p.open(
             format=pyaudio.paInt16,
@@ -224,8 +233,16 @@ class Capture:
         self.thread = threading.Thread(target=self._process, daemon=True)
         self.thread.start()
 
+    def set_enabled(self, enabled: bool) -> None:
+        """Dynamically enable or disable capture for this channel."""
+        if enabled:
+            self.enabled.set()
+        else:
+            self.enabled.clear()
+            self.segmenter.reset()
+
     def _callback(self, in_data, frame_count, time_info, status):
-        if self.running.is_set():
+        if self.running.is_set() and self.enabled.is_set():
             self.raw_queue.put(in_data)
         return (None, pyaudio.paContinue)
 

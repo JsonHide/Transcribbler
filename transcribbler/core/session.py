@@ -153,6 +153,17 @@ class TranscriptionSession:
                 finally:
                     self.q.task_done()
 
+    def set_channel_enabled(self, source: str, enabled: bool) -> None:
+        """Dynamically enable or disable capture for 'ME' or 'OTHERS'."""
+        if source == "ME":
+            self.enable_mic = enabled
+        elif source == "OTHERS":
+            self.enable_speaker = enabled
+
+        for c in self.captures:
+            if c.segmenter.source == source:
+                c.set_enabled(enabled)
+
     def stop(self) -> None:
         """Stop audio streams, drain queue, and shut down cleanly."""
         for c in self.captures:

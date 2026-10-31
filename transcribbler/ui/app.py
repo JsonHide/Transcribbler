@@ -58,6 +58,9 @@ class TranscribblerApp(ctk.CTk):
         self.font_size = FONT_SIZE_DEFAULT
         self.is_running = False
 
+        self.mic_enabled = True
+        self.spk_enabled = True
+
         self._last_mic_speech = 0.0
         self._last_spk_speech = 0.0
 
@@ -165,13 +168,19 @@ class TranscribblerApp(ctk.CTk):
         self.mic_frame = ctk.CTkFrame(self.dual_container)
         self.mic_frame.pack(side="left", fill="both", expand=True, padx=(0, 4))
 
-        self.mic_header = ctk.CTkFrame(self.mic_frame, height=36, fg_color=MIC_HEADER_COLOR)
+        self.mic_header = ctk.CTkFrame(self.mic_frame, height=38, fg_color=MIC_HEADER_COLOR)
         self.mic_header.pack(fill="x")
         self.mic_header.pack_propagate(False)
         self.mic_title = ctk.CTkLabel(
             self.mic_header, text="🎤 Microphone (ME)", font=ctk.CTkFont(weight="bold")
         )
         self.mic_title.pack(side="left", padx=10, pady=4)
+        self.mic_toggle_btn = ctk.CTkButton(
+            self.mic_header, text="Disable", width=65, height=24,
+            fg_color="#343a40", hover_color="#212529", font=ctk.CTkFont(size=12),
+            command=self._toggle_mic_channel,
+        )
+        self.mic_toggle_btn.pack(side="left", padx=6)
         self.mic_led = ctk.CTkLabel(self.mic_header, text=f"{LED_IDLE} Idle")
         self.mic_led.pack(side="right", padx=10)
 
@@ -183,13 +192,19 @@ class TranscribblerApp(ctk.CTk):
         self.spk_frame = ctk.CTkFrame(self.dual_container)
         self.spk_frame.pack(side="right", fill="both", expand=True, padx=(4, 0))
 
-        self.spk_header = ctk.CTkFrame(self.spk_frame, height=36, fg_color=SPK_HEADER_COLOR)
+        self.spk_header = ctk.CTkFrame(self.spk_frame, height=38, fg_color=SPK_HEADER_COLOR)
         self.spk_header.pack(fill="x")
         self.spk_header.pack_propagate(False)
         self.spk_title = ctk.CTkLabel(
             self.spk_header, text="🔊 Speaker / System (OTHERS)", font=ctk.CTkFont(weight="bold")
         )
         self.spk_title.pack(side="left", padx=10, pady=4)
+        self.spk_toggle_btn = ctk.CTkButton(
+            self.spk_header, text="Disable", width=65, height=24,
+            fg_color="#343a40", hover_color="#212529", font=ctk.CTkFont(size=12),
+            command=self._toggle_spk_channel,
+        )
+        self.spk_toggle_btn.pack(side="left", padx=6)
         self.spk_led = ctk.CTkLabel(self.spk_header, text=f"{LED_IDLE} Idle")
         self.spk_led.pack(side="right", padx=10)
 
@@ -258,8 +273,8 @@ class TranscribblerApp(ctk.CTk):
             translator_choice=self.trans_combo.get(),
             mic_device_index=mic_idx,
             speaker_device_index=spk_idx,
-            enable_mic=True,
-            enable_speaker=True,
+            enable_mic=self.mic_enabled,
+            enable_speaker=self.spk_enabled,
             on_entry=self.event_queue.put,
             on_activity=lambda src, sp, lvl: self.activity_queue.put((src, sp, lvl)),
         )
@@ -323,10 +338,17 @@ class TranscribblerApp(ctk.CTk):
             activity_count += 1
 
         if self.is_running:
-            if now - self._last_mic_speech > 0.6:
-                self.mic_led.configure(text=f"{LED_IDLE} Listening")
-            if now - self._last_spk_speech > 0.6:
-                self.spk_led.configure(text=f"{LED_IDLE} Listening")
+            if self.mic_enabled:
+                if now - self._last_mic_speech > 0.6:
+                    self.mic_led.configure(text=f"{LED_IDLE} Listening")
+            else:
+                self.mic_led.configure(text=f"{LED_IDLE} Disabled")
+
+            if self.spk_enabled:
+                if now - self._last_spk_speech > 0.6:
+                    self.spk_led.configure(text=f"{LED_IDLE} Listening")
+            else:
+                self.spk_led.configure(text=f"{LED_IDLE} Disabled")
 
         while not self.event_queue.empty():
             entry = self.event_queue.get_nowait()
@@ -390,6 +412,36 @@ class TranscribblerApp(ctk.CTk):
         self.mic_textbox.delete("1.0", "end")
         self.spk_textbox.delete("1.0", "end")
         self.unified_textbox.delete("1.0", "end")
+
+    def _toggle_mic_channel(self):
+        """Toggle audio capture for Microphone (ME)."""
+        self.mic_enabled = not self.mic_enabled
+        if self.mic_enabled:
+            self.mic_toggle_btn.configure(text="Disable", fg_color="#343a40", hover_color="#212529")
+            self.mic_header.configure(fg_color=MIC_HEADER_COLOR)
+            self.mic_led.configure(text=f"{LED_IDLE} Listening" if self.is_running else f"{LED_IDLE} Idle")
+        else:
+            self.mic_toggle_btn.configure(text="Enable", fg_color="#2b8a3e", hover_color="#237032")
+            self.mic_header.configure(fg_color="#343a40")
+            self.mic_led.configure(text=f"{LED_IDLE} Disabled")
+
+        if self.session:
+            self.session.set_channel_enabled("ME", self.mic_enabled)
+
+    def _toggle_spk_channel(self):
+        """Toggle audio capture for Speaker / System (OTHERS)."""
+        self.spk_enabled = not self.spk_enabled
+        if self.spk_enabled:
+            self.spk_toggle_btn.configure(text="Disable", fg_color="#343a40", hover_color="#212529")
+            self.spk_header.configure(fg_color=SPK_HEADER_COLOR)
+            self.spk_led.configure(text=f"{LED_IDLE} Listening" if self.is_running else f"{LED_IDLE} Idle")
+        else:
+            self.spk_toggle_btn.configure(text="Enable", fg_color="#2b8a3e", hover_color="#237032")
+            self.spk_header.configure(fg_color="#343a40")
+            self.spk_led.configure(text=f"{LED_IDLE} Disabled")
+
+        if self.session:
+            self.session.set_channel_enabled("OTHERS", self.spk_enabled)
 
     def _copy_transcripts(self):
         full_text = "\n".join(format_entry_block(e, include_source=True) for e in self.entries)
