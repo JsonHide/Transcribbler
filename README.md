@@ -121,7 +121,7 @@ Simply run:
 ```powershell
 python main.py
 ```
-
+![alt text](gui.png)
 - **Start Capture**: Click **▶ Start** to begin listening to your mic and system audio.
 - **Channel Mute / Pause**: Click **`[Disable]`** or **`[Enable]`** directly in either the `Microphone (ME)` or `Speaker / System (OTHERS)` header to pause or resume capturing that channel live without stopping the session.
 - **Switch Views**: Toggle between **Dual Column** (side-by-side) and **Unified Timeline** (single chronological stream).
