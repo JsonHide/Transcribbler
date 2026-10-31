@@ -7,6 +7,11 @@
 
 ## Features
 
+- ⚡ **Near-Real-Time Streaming Transcription**:
+  - Upgraded from delayed batch chunking to **low-latency streaming recognition (1.5–2.5s target latency)**.
+  - Emits live interim snapshots with visual indicator badges (`⏳ ...`) updated in-place every 1.5 seconds.
+  - **Drop-stale interim backpressure**: Asynchronous single-slot interim buffering drops outdated interim frames if the recognizer is busy, preventing queue buildup and ensuring the pipeline never falls behind real time.
+  - **Adaptive Clause Splitting & Lowest-RMS Carry-Over**: Adaptive micro-pause detection splits long speech naturally at clause boundaries; continuous non-stop speech (up to 12s) splits at the lowest-energy syllable boundary with frame context carry-over to avoid cutting words in half.
 - 🎙️ **Dual-Channel Audio Capture**:
   - **Microphone (`ME`)**: Captures your local microphone voice.
   - **System Loopback (`OTHERS`)**: Directly captures speaker and headset audio (meetings, Zoom, Teams, YouTube, browser calls) without requiring virtual audio cables.
@@ -206,6 +211,7 @@ Transcripts are written to both the interface and `transcripts/transcript_YYYYMM
 
 ## Release Highlights
 
+- **Near-Real-Time Streaming Transcription (v0.5.0)**: Upgraded from 25-second delayed batch chunking to streaming transcription with 1.5–2.5s responsiveness. Features in-place GUI interim text replacement (`⏳ ...`), drop-stale interim backpressure preventing worker backlog, two-tier adaptive clause segmentation, and lowest-RMS syllable splitting with frame carry-over to eliminate mid-word cuts.
 - **Channel Capture Toggles (v0.4.0)**: Added live **`[Disable]` / `[Enable]`** buttons in the Microphone and Speaker headers to pause and resume audio capturing independently at the hardware/audio callback level.
 - **Graceful CLI Shutdown (v0.3.0)**: Fixed PowerShell `Ctrl+C` interruption by converting the uninterruptible wait into a periodic polling loop and adding Windows `SIGBREAK` signal mapping.
 - **Cleaner Transcripts when Translation is Off (v0.2.0)**: Suppressed redundant `EN:` duplicate lines when Translate is set to `off`.

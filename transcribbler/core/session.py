@@ -79,13 +79,54 @@ class TranscriptionSession:
         self.rec: Optional[Recognizer] = None
         self.captures: list[Capture] = []
         self.q: queue.Queue[Utterance] = queue.Queue()
+        self._interim_lock = threading.Lock()
+        self._latest_interim: dict[str, Utterance] = {}
+        self._finalized_ids: set[str] = set()
+        self._last_interim_source: str = "OTHERS"
+        self._work_event = threading.Event()
         self.stop_event = threading.Event()
         self.worker_thread: Optional[threading.Thread] = None
+
+    def _submit_final(self, u: Utterance) -> None:
+        """Enqueue a finalized utterance (FIFO) and discard any stale interim for the same ID."""
+        with self._interim_lock:
+            self._finalized_ids.add(u.utterance_id)
+            if len(self._finalized_ids) > 500:
+                self._finalized_ids.clear()
+                self._finalized_ids.add(u.utterance_id)
+            pending = self._latest_interim.get(u.source)
+            if pending is not None and pending.utterance_id == u.utterance_id:
+                del self._latest_interim[u.source]
+        self.q.put(u)
+        self._work_event.set()
+
+    def _submit_interim(self, u: Utterance) -> None:
+        """Store only the latest interim snapshot per source (drop-stale backpressure)."""
+        with self._interim_lock:
+            if u.utterance_id in self._finalized_ids:
+                return
+            self._latest_interim[u.source] = u
+        self._work_event.set()
+
+    def _pop_next_interim(self) -> Optional[Utterance]:
+        """Pop the next pending interim utterance, alternating sources for fairness."""
+        with self._interim_lock:
+            if not self._latest_interim:
+                return None
+            preferred = "ME" if self._last_interim_source == "OTHERS" else "OTHERS"
+            if preferred in self._latest_interim:
+                self._last_interim_source = preferred
+                return self._latest_interim.pop(preferred)
+            src, u = next(iter(self._latest_interim.items()))
+            self._last_interim_source = src
+            del self._latest_interim[src]
+            return u
 
     def start(self) -> None:
         """Initialize audio devices and start capture + recognition threads with atomic cleanup."""
         self.p = pyaudio.PyAudio()
         self.stop_event.clear()
+        self._work_event.clear()
 
         try:
             self.rec = Recognizer(self.language, self.threads)
@@ -98,24 +139,46 @@ class TranscriptionSession:
                     if self.mic_index is not None
                     else self.p.get_default_input_device_info()
                 )
-                seg = Segmenter("ME", self.q, on_activity=self.on_activity)
+                seg = Segmenter(
+                    "ME",
+                    self.q,
+                    on_activity=self.on_activity,
+                    on_final=self._submit_final,
+                    on_interim=self._submit_interim,
+                )
                 self.captures.append(Capture(self.p, dev, seg))
 
             if self.enable_speaker:
                 dev = find_loopback(self.p, self.speaker_index)
-                seg = Segmenter("OTHERS", self.q, on_activity=self.on_activity)
+                seg = Segmenter(
+                    "OTHERS",
+                    self.q,
+                    on_activity=self.on_activity,
+                    on_final=self._submit_final,
+                    on_interim=self._submit_interim,
+                )
                 self.captures.append(Capture(self.p, dev, seg))
         except Exception:
             self.stop()
             raise
 
     def _worker_loop(self) -> None:
-        """Process utterances from the queue: recognize, romanize, translate, and dispatch."""
+        """Process finalized (priority FIFO) and interim (drop-stale) utterances."""
         with open(self.out_path, "a", encoding="utf-8") as f:
             while not self.stop_event.is_set() or not self.q.empty():
+                u: Optional[Utterance] = None
+                from_fifo = False
+
                 try:
-                    u = self.q.get(timeout=0.3)
+                    u = self.q.get_nowait()
+                    from_fifo = True
                 except queue.Empty:
+                    if not self.stop_event.is_set():
+                        u = self._pop_next_interim()
+
+                if u is None:
+                    self._work_event.wait(timeout=0.15)
+                    self._work_event.clear()
                     continue
 
                 try:
@@ -123,35 +186,45 @@ class TranscriptionSession:
                     if not text:
                         continue
 
+                    # If a final segment for this same utterance arrived while decoding an interim,
+                    # skip emitting the superseded interim result.
+                    if not u.is_final:
+                        with self._interim_lock:
+                            if u.utterance_id in self._finalized_ids:
+                                continue
+
                     roman = romanize(text, lang)
                     english = ""
                     if self.translator and self.output_mode in ("translate", "all"):
                         if lang == "en":
                             english = text
-                        else:
+                        elif u.is_final or self.tname == "offline":
                             try:
                                 english = self.translator.translate(text, lang)
                             except Exception as e:
                                 english = f"(translation error: {e})"
 
                     entry = TranscriptEntry(
-                        id=uuid.uuid4().hex[:8],
+                        id=u.utterance_id,
                         timestamp=u.started,
                         source=u.source,
                         lang=lang,
                         text=text,
                         roman=roman,
                         translation=english if english else None,
+                        is_final=u.is_final,
                     )
 
-                    formatted = format_entry_text(entry, self.output_mode)
-                    f.write(formatted)
-                    f.flush()
+                    if u.is_final:
+                        formatted = format_entry_text(entry, self.output_mode)
+                        f.write(formatted)
+                        f.flush()
 
                     if self.on_entry:
                         self.on_entry(entry)
                 finally:
-                    self.q.task_done()
+                    if from_fifo:
+                        self.q.task_done()
 
     def set_channel_enabled(self, source: str, enabled: bool) -> None:
         """Dynamically enable or disable capture for 'ME' or 'OTHERS'."""
@@ -159,6 +232,10 @@ class TranscriptionSession:
             self.enable_mic = enabled
         elif source == "OTHERS":
             self.enable_speaker = enabled
+
+        if not enabled:
+            with self._interim_lock:
+                self._latest_interim.pop(source, None)
 
         for c in self.captures:
             if c.segmenter.source == source:
@@ -170,7 +247,11 @@ class TranscriptionSession:
             c.close()
         self.captures.clear()
 
+        with self._interim_lock:
+            self._latest_interim.clear()
+
         self.stop_event.set()
+        self._work_event.set()
         if self.worker_thread and self.worker_thread.is_alive():
             self.worker_thread.join(timeout=5.0)
             self.worker_thread = None

@@ -50,6 +50,7 @@ class TranscribblerApp(ctk.CTk):
         self.activity_queue: queue.Queue[tuple[str, bool, float]] = queue.Queue()
 
         self.entries: list[TranscriptEntry] = []
+        self._entry_index_by_id: dict[str, int] = {}
         self._mics_map: dict[str, int] = {}
         self._spks_map: dict[str, int] = {}
 
@@ -313,6 +314,7 @@ class TranscribblerApp(ctk.CTk):
         threading.Thread(target=_async_stop, daemon=True).start()
 
     def _on_stop_complete(self):
+        self._finalize_pending_interims()
         self.start_btn.configure(
             text="▶ Start", fg_color=BTN_START_FG, hover_color=BTN_START_HOVER, state="normal",
         )
@@ -352,33 +354,72 @@ class TranscribblerApp(ctk.CTk):
 
         while not self.event_queue.empty():
             entry = self.event_queue.get_nowait()
-            self.entries.append(entry)
+            if entry.id in self._entry_index_by_id:
+                idx = self._entry_index_by_id[entry.id]
+                self.entries[idx] = entry
+            else:
+                self._entry_index_by_id[entry.id] = len(self.entries)
+                self.entries.append(entry)
             self._render_entry(entry)
 
-        self.after(100, self._process_events)
+        self.after(60, self._process_events)
+
+    @staticmethod
+    def _upsert_textbox_block(
+        textbox: ctk.CTkTextbox,
+        entry_id: str,
+        block_text: str,
+        is_final: bool,
+    ) -> None:
+        """Insert or update an utterance block in-place using Tkinter text tags."""
+        tag = f"entry_{entry_id}"
+        ranges = textbox.tag_ranges(tag)
+        if ranges:
+            start_idx, end_idx = ranges[0], ranges[1]
+            textbox.delete(start_idx, end_idx)
+            if is_final:
+                textbox.insert(start_idx, block_text)
+                textbox.tag_delete(tag)
+            else:
+                textbox.insert(start_idx, block_text, (tag,))
+        else:
+            if is_final:
+                textbox.insert("end", block_text)
+            else:
+                textbox.insert("end", block_text, (tag,))
+        textbox.see("end")
+
+    def _finalize_pending_interims(self, source: Optional[str] = None) -> None:
+        """Lock in any active interim blocks when a channel is disabled or session stops."""
+        for e in self.entries:
+            if not e.is_final and (source is None or e.source == source):
+                e.is_final = True
+                self._render_entry(e)
 
     def _render_entry(self, entry: TranscriptEntry):
         col_block = format_entry_block(entry, include_source=False)
         uni_block = format_entry_block(entry, include_source=True)
 
         if entry.source == "ME":
-            self.mic_textbox.insert("end", col_block)
-            self.mic_textbox.see("end")
+            self._upsert_textbox_block(self.mic_textbox, entry.id, col_block, entry.is_final)
         else:
-            self.spk_textbox.insert("end", col_block)
-            self.spk_textbox.see("end")
+            self._upsert_textbox_block(self.spk_textbox, entry.id, col_block, entry.is_final)
 
         mode = self.filter_combo.get()
         if mode == "All Sources" or (mode == "Microphone Only" and entry.source == "ME") or (mode == "Speaker Only" and entry.source == "OTHERS"):
-            self.unified_textbox.insert("end", uni_block)
-            self.unified_textbox.see("end")
+            self._upsert_textbox_block(self.unified_textbox, entry.id, uni_block, entry.is_final)
 
     def _rebuild_unified_textbox(self):
         self.unified_textbox.delete("1.0", "end")
         mode = self.filter_combo.get()
         for e in self.entries:
             if mode == "All Sources" or (mode == "Microphone Only" and e.source == "ME") or (mode == "Speaker Only" and e.source == "OTHERS"):
-                self.unified_textbox.insert("end", format_entry_block(e, include_source=True))
+                self._upsert_textbox_block(
+                    self.unified_textbox,
+                    e.id,
+                    format_entry_block(e, include_source=True),
+                    e.is_final,
+                )
         self.unified_textbox.see("end")
 
     def _on_filter_changed(self, choice):
@@ -409,6 +450,7 @@ class TranscribblerApp(ctk.CTk):
 
     def _clear_transcripts(self):
         self.entries.clear()
+        self._entry_index_by_id.clear()
         self.mic_textbox.delete("1.0", "end")
         self.spk_textbox.delete("1.0", "end")
         self.unified_textbox.delete("1.0", "end")
@@ -424,6 +466,7 @@ class TranscribblerApp(ctk.CTk):
             self.mic_toggle_btn.configure(text="Enable", fg_color="#2b8a3e", hover_color="#237032")
             self.mic_header.configure(fg_color="#343a40")
             self.mic_led.configure(text=f"{LED_IDLE} Disabled")
+            self._finalize_pending_interims("ME")
 
         if self.session:
             self.session.set_channel_enabled("ME", self.mic_enabled)
@@ -439,6 +482,7 @@ class TranscribblerApp(ctk.CTk):
             self.spk_toggle_btn.configure(text="Enable", fg_color="#2b8a3e", hover_color="#237032")
             self.spk_header.configure(fg_color="#343a40")
             self.spk_led.configure(text=f"{LED_IDLE} Disabled")
+            self._finalize_pending_interims("OTHERS")
 
         if self.session:
             self.session.set_channel_enabled("OTHERS", self.spk_enabled)

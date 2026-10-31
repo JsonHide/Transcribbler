@@ -6,6 +6,7 @@ from datetime import datetime
 import math
 import queue
 import threading
+import uuid
 from typing import Any, Callable, Optional
 
 import numpy as np
@@ -67,33 +68,54 @@ class AudioResampler:
 
 
 class Segmenter:
-    """Splits continuous 16 kHz stream into utterances using WebRTC VAD and pre-speech buffer."""
+    """Splits continuous 16 kHz stream into streaming interim and final utterances using VAD and RMS."""
 
     def __init__(
         self,
         source: str,
         out_q: queue.Queue[Utterance],
         on_activity: Optional[Callable[[str, bool, float], None]] = None,
+        on_final: Optional[Callable[[Utterance], None]] = None,
+        on_interim: Optional[Callable[[Utterance], None]] = None,
         aggressiveness: int = 2,
-        silence_ms: int = 700,
-        max_seconds: int = 25,
+        silence_ms: int = 450,
+        soft_max_seconds: float = 5.0,
+        soft_silence_ms: int = 150,
+        max_seconds: float = 12.0,
         min_ms: int = 300,
         pre_speech_ms: int = 180,
+        interim_interval_ms: int = 1500,
+        min_interim_ms: int = 900,
     ):
         self.source = source
         self.out_q = out_q
         self.on_activity = on_activity
+        self.on_final = on_final
+        self.on_interim = on_interim
         self.vad = webrtcvad.Vad(aggressiveness)
         self.pending = np.zeros(0, dtype=np.int16)
         self.frames: list[np.ndarray] = []
+        self.frame_rms: list[float] = []
         self.silent = 0
+        self.soft_silent = 0
+        self.speech_rms_ema = 0.0
         self.started: Optional[datetime] = None
+        self.current_id: str = ""
+        self.frames_since_interim: int = 0
 
-        self.silence_limit = silence_ms // FRAME_MS
-        self.max_frames = max_seconds * 1000 // FRAME_MS
-        self.min_frames = min_ms // FRAME_MS
+        self.silence_limit = max(1, silence_ms // FRAME_MS)
+        self.soft_max_frames = int(soft_max_seconds * 1000 // FRAME_MS)
+        self.soft_silence_limit = max(1, soft_silence_ms // FRAME_MS)
+        self.max_frames = int(max_seconds * 1000 // FRAME_MS)
+        self.min_frames = max(1, min_ms // FRAME_MS)
+        self.interim_interval_frames = max(1, interim_interval_ms // FRAME_MS)
+        self.min_interim_frames = max(1, min_interim_ms // FRAME_MS)
         pre_frames_count = max(1, pre_speech_ms // FRAME_MS)
         self.pre_buffer: deque[np.ndarray] = deque(maxlen=pre_frames_count)
+
+    @staticmethod
+    def _calc_rms(frame: np.ndarray) -> float:
+        return float(np.sqrt(np.mean(frame.astype(np.float32) ** 2)) / 32768.0)
 
     def feed(self, pcm16: np.ndarray) -> None:
         if len(self.pending) > 0:
@@ -106,28 +128,87 @@ class Segmenter:
             self.pending = self.pending[FRAME_SAMPLES:]
 
             is_speech = self.vad.is_speech(frame.tobytes(), TARGET_SR)
+            rms = self._calc_rms(frame)
             if self.on_activity:
-                # Compute RMS energy normalized roughly between 0.0 and 1.0
-                rms = float(np.sqrt(np.mean(frame.astype(np.float32) ** 2)) / 32768.0)
                 self.on_activity(self.source, is_speech, min(1.0, rms * 5.0))
 
             if is_speech:
                 if not self.frames:
                     self.started = datetime.now()
+                    self.current_id = uuid.uuid4().hex[:8]
+                    self.frames_since_interim = 0
+                    self.speech_rms_ema = rms
                     # Prepend pre-speech frames to avoid clipping initial consonants
-                    self.frames.extend(self.pre_buffer)
+                    for pf in self.pre_buffer:
+                        self.frames.append(pf)
+                        self.frame_rms.append(self._calc_rms(pf))
                 self.frames.append(frame)
+                self.frame_rms.append(rms)
                 self.silent = 0
+                self.frames_since_interim += 1
+
+                # Detect energy-dip micro-pauses (when VAD hangover stays True during a breath pause)
+                if self.speech_rms_ema > 0.0 and rms < max(0.004, self.speech_rms_ema * 0.18):
+                    self.soft_silent += 1
+                else:
+                    self.soft_silent = 0
+                    self.speech_rms_ema = 0.92 * self.speech_rms_ema + 0.08 * rms
+
+                if (
+                    len(self.frames) >= self.soft_max_frames
+                    and self.soft_silent >= self.soft_silence_limit
+                ):
+                    self._flush()
             else:
                 self.pre_buffer.append(frame)
                 if self.frames:
                     self.frames.append(frame)
+                    self.frame_rms.append(rms)
                     self.silent += 1
+                    self.soft_silent += 1
+                    self.frames_since_interim += 1
                     if self.silent >= self.silence_limit:
                         self._flush()
+                    elif (
+                        len(self.frames) >= self.soft_max_frames
+                        and self.soft_silent >= self.soft_silence_limit
+                    ):
+                        self._flush()
 
-            if len(self.frames) >= self.max_frames:
-                self._flush()
+            if self.frames:
+                if len(self.frames) >= self.max_frames:
+                    self._flush_at_energy_min()
+                elif (
+                    self.on_interim is not None
+                    and self.frames_since_interim >= self.interim_interval_frames
+                    and (len(self.frames) - self.silent) >= self.min_interim_frames
+                ):
+                    self._emit_interim()
+                    self.frames_since_interim = 0
+
+    def _emit_final_utterance(self, u: Utterance) -> None:
+        if self.on_final is not None:
+            self.on_final(u)
+        else:
+            self.out_q.put(u)
+
+    def _emit_interim(self) -> None:
+        if self.on_interim is None or self.started is None or not self.frames:
+            return
+        trim = max(0, self.silent - 3)
+        active_frames = self.frames[:-trim] if trim > 0 else self.frames
+        if not active_frames:
+            return
+        audio = np.concatenate(active_frames).astype(np.float32) / 32768.0
+        self.on_interim(
+            Utterance(
+                source=self.source,
+                audio=audio,
+                started=self.started,
+                utterance_id=self.current_id,
+                is_final=False,
+            )
+        )
 
     def _flush(self) -> None:
         speech_frames_count = len(self.frames) - self.silent
@@ -137,17 +218,83 @@ class Segmenter:
             active_frames = self.frames[:-trim] if trim > 0 else self.frames
             if active_frames:
                 audio = np.concatenate(active_frames).astype(np.float32) / 32768.0
-                self.out_q.put(Utterance(self.source, audio, self.started))
+                self._emit_final_utterance(
+                    Utterance(
+                        source=self.source,
+                        audio=audio,
+                        started=self.started,
+                        utterance_id=self.current_id or uuid.uuid4().hex[:8],
+                        is_final=True,
+                    )
+                )
         self.frames.clear()
+        self.frame_rms.clear()
         self.silent = 0
+        self.soft_silent = 0
+        self.speech_rms_ema = 0.0
         self.started = None
+        self.current_id = ""
+        self.frames_since_interim = 0
+
+    def _flush_at_energy_min(self) -> None:
+        """Split continuous speech at the lowest-RMS syllable boundary and carry over trailing frames."""
+        n = len(self.frames)
+        if n < self.min_frames or self.started is None:
+            self._flush()
+            return
+
+        # Search the last ~1.5s (up to 50 frames) for the lowest 3-frame rolling RMS energy
+        search_win = min(50, max(6, n // 3))
+        start_idx = max(self.min_frames, n - search_win)
+        end_idx = max(start_idx + 1, n - 3)
+
+        best_idx = end_idx
+        best_energy = float("inf")
+        for i in range(start_idx, end_idx + 1):
+            window_energy = (
+                self.frame_rms[i - 1] + self.frame_rms[i] + self.frame_rms[min(n - 1, i + 1)]
+            )
+            if window_energy < best_energy:
+                best_energy = window_energy
+                best_idx = i
+
+        commit_frames = self.frames[: best_idx + 1]
+        # Keep a 2-frame (~60ms) context overlap in the carry-over so boundary consonants aren't clipped
+        carry_start = max(0, best_idx - 1)
+        carry_frames = self.frames[carry_start:]
+        carry_rms = self.frame_rms[carry_start:]
+
+        if commit_frames:
+            audio = np.concatenate(commit_frames).astype(np.float32) / 32768.0
+            self._emit_final_utterance(
+                Utterance(
+                    source=self.source,
+                    audio=audio,
+                    started=self.started,
+                    utterance_id=self.current_id or uuid.uuid4().hex[:8],
+                    is_final=True,
+                )
+            )
+
+        self.frames = list(carry_frames)
+        self.frame_rms = list(carry_rms)
+        self.silent = 0
+        self.soft_silent = 0
+        self.started = datetime.now()
+        self.current_id = uuid.uuid4().hex[:8]
+        self.frames_since_interim = 0
 
     def reset(self) -> None:
         """Clear all buffered frames and reset state (used when muted/disabled)."""
         self.frames.clear()
+        self.frame_rms.clear()
         self.pending = np.zeros(0, dtype=np.int16)
         self.silent = 0
+        self.soft_silent = 0
+        self.speech_rms_ema = 0.0
         self.started = None
+        self.current_id = ""
+        self.frames_since_interim = 0
 
 
 def get_audio_devices(p: pyaudio.PyAudio) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:

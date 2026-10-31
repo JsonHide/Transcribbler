@@ -1,9 +1,10 @@
 """Event and data definitions for audio capture and speech recognition."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
+import uuid
 import numpy as np
 
 
@@ -12,6 +13,8 @@ class Utterance:
     source: str            # "ME" or "OTHERS"
     audio: np.ndarray      # float32, 16 kHz mono normalized [-1.0, 1.0]
     started: datetime
+    utterance_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
+    is_final: bool = True
 
 
 @dataclass
@@ -23,6 +26,7 @@ class TranscriptEntry:
     text: str
     roman: Optional[str]
     translation: Optional[str]
+    is_final: bool = True
 
 
 @dataclass

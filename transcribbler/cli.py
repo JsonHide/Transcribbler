@@ -89,6 +89,8 @@ def run_cli() -> None:
         return
 
     def print_entry(e: TranscriptEntry):
+        if not e.is_final:
+            return
         text = format_entry_text(e, args.output_mode)
         print(text, end="", flush=True)
 
