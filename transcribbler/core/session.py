@@ -125,13 +125,14 @@ class TranscriptionSession:
 
                     roman = romanize(text, lang)
                     english = ""
-                    if lang == "en":
-                        english = text
-                    elif self.translator and self.output_mode in ("translate", "all"):
-                        try:
-                            english = self.translator.translate(text, lang)
-                        except Exception as e:
-                            english = f"(translation error: {e})"
+                    if self.translator and self.output_mode in ("translate", "all"):
+                        if lang == "en":
+                            english = text
+                        else:
+                            try:
+                                english = self.translator.translate(text, lang)
+                            except Exception as e:
+                                english = f"(translation error: {e})"
 
                     entry = TranscriptEntry(
                         id=uuid.uuid4().hex[:8],
