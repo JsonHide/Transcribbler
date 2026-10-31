@@ -1,0 +1,39 @@
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Speech models (large binary weights >100MB downloaded separately)
+models/
+*.onnx
+*.tar.bz2
+*.tar.gz
+
+# Generated transcripts and export output
+transcripts/
+*.txt.bak
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Agent and temporary workspace folders
+.agent/
+.agents/
+
+# IDE and editor settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs and scratch files
+*.log
+scratch/

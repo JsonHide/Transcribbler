@@ -1,0 +1,12 @@
+sherpa-onnx>=1.10.0
+PyAudioWPatch>=0.2.12.6
+webrtcvad-wheels>=2.0.10.post2
+numpy>=1.24.0
+scipy>=1.11.0
+soxr>=0.3.7
+pypinyin>=0.50.0
+pycantonese>=3.4.0
+opencc-python-reimplemented>=0.1.7
+argostranslate>=1.9.0
+requests>=2.31.0
+customtkinter>=5.2.0
