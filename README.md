@@ -31,6 +31,7 @@
   - **Source Filtering**: Filter on the fly between **All Sources**, **Microphone Only**, or **Speaker Only** (synchronized across both views).
   - **Live VAD Activity LEDs**: Pulsing visual indicators when speech is actively detected on either channel, backed by an auto-reset watchdog for silent audio streams.
   - **Productivity Tools**: Floating **Always on Top** overlay mode, font size scaling (`A-` / `A+`), quick **📋 Copy** to clipboard, **💾 Save** transcript to text file, and instant **Clear**.
+  - **Hot-Plug Device Detection**: Plug in or unplug USB / Bluetooth headphones and the **Mic** / **Speaker** lists update automatically (or click **⟳ Rescan** to rescan on demand — hover it for a tooltip) — no restart needed. You can switch devices live mid-session without reloading the speech model.
 - 💻 **Headless CLI Mode**: Full-featured command-line interface preserving complete terminal compatibility, automated piping support, and graceful `Ctrl+C` interrupt handling in PowerShell.
 
 ---
@@ -125,6 +126,7 @@ python main.py
 - **Start Capture**: Click **▶ Start** to begin listening to your mic and system audio.
 - **Channel Mute / Pause**: Click **`[Disable]`** or **`[Enable]`** directly in either the `Microphone (ME)` or `Speaker / System (OTHERS)` header to pause or resume capturing that channel live without stopping the session.
 - **Switch Views**: Toggle between **Dual Column** (side-by-side) and **Unified Timeline** (single chronological stream).
+- **Refresh / Switch Audio Devices**: Newly connected USB or Bluetooth headsets appear in the **Mic:** / **Speaker:** dropdowns automatically within ~3 seconds; click the teal **⟳ Rescan** button (bottom-right) to force a rescan. The dropdowns stay active while transcribing — pick a different device and capture switches over instantly (your selection is kept by name even if Windows renumbers devices, and falls back to the default if a device is unplugged).
 - **Source Filter**: Select **Microphone Only** or **Speaker Only** to isolate a single channel.
 - **Float Over Apps**: Check **Always on Top** to keep Transcribbler floating beside Zoom, Teams, Google Meet, or video players.
 - **Export & Manage**: Use **📋 Copy** to copy text to clipboard, **💾 Save** to export the session to a custom `.txt` file, or **Clear** to reset the window.
@@ -211,6 +213,7 @@ Transcripts are written to both the interface and `transcripts/transcript_YYYYMM
 
 ## Release Highlights
 
+- **Dynamic Audio Device Refresh (v0.6.0)**: Added a teal **⟳ Rescan** button (with hover tooltip and scanning state) and automatic USB / Bluetooth hot-plug detection for the Mic and Speaker lists, plus live device switching during a session (only the audio streams are recycled; the SenseVoice model, worker, and transcript file stay running).
 - **Near-Real-Time Streaming Transcription (v0.5.0)**: Upgraded from 25-second delayed batch chunking to streaming transcription with 1.5–2.5s responsiveness. Features in-place GUI interim text replacement (`⏳ ...`), drop-stale interim backpressure preventing worker backlog, two-tier adaptive clause segmentation, and lowest-RMS syllable splitting with frame carry-over to eliminate mid-word cuts.
 - **Channel Capture Toggles (v0.4.0)**: Added live **`[Disable]` / `[Enable]`** buttons in the Microphone and Speaker headers to pause and resume audio capturing independently at the hardware/audio callback level.
 - **Graceful CLI Shutdown (v0.3.0)**: Fixed PowerShell `Ctrl+C` interruption by converting the uninterruptible wait into a periodic polling loop and adding Windows `SIGBREAK` signal mapping.
@@ -224,7 +227,7 @@ Transcripts are written to both the interface and `transcripts/transcript_YYYYMM
 
 1. **Headset Recommendation**: When capturing both microphone and speaker audio simultaneously, wear a headset to avoid external speaker audio bleeding into your microphone.
 2. **WASAPI Loopback Behavior**: Windows stops sending loopback frames when no application is emitting sound. Transcribbler handles this gracefully with an automatic VAD activity watchdog.
-3. **Bluetooth Headsets**: If using a Bluetooth headset, verify sample rates with `python main.py --cli --list-devices` and select the appropriate interface from the GUI dropdown or CLI flag.
+3. **Bluetooth Headsets**: If using a Bluetooth headset, verify sample rates with `python main.py --cli --list-devices` and select the appropriate interface from the GUI dropdown or CLI flag. In the GUI, a newly paired headset shows up automatically; if it doesn't, click **⟳ Rescan**.
 
 ---
 

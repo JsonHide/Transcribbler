@@ -5,6 +5,7 @@ from collections import deque
 from datetime import datetime
 import math
 import queue
+import sys
 import threading
 import uuid
 from typing import Any, Callable, Optional
@@ -295,6 +296,50 @@ class Segmenter:
         self.started = None
         self.current_id = ""
         self.frames_since_interim = 0
+
+
+def get_device_topology_signature() -> tuple:
+    """Cheap (~ms) Windows hardware signature used to detect USB/Bluetooth hot-plug events.
+
+    Queries winmm directly, which reflects plug/unplug immediately (unlike PortAudio,
+    which caches its device list until every PyAudio instance is terminated).
+    Returns an empty tuple on non-Windows platforms or on failure.
+    """
+    if sys.platform != "win32":
+        return ()
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class WAVEINCAPSW(ctypes.Structure):
+            _fields_ = [
+                ("wMid", wintypes.WORD), ("wPid", wintypes.WORD),
+                ("vDriverVersion", wintypes.UINT), ("szPname", wintypes.WCHAR * 32),
+                ("dwFormats", wintypes.DWORD), ("wChannels", wintypes.WORD),
+                ("wReserved1", wintypes.WORD),
+            ]
+
+        class WAVEOUTCAPSW(ctypes.Structure):
+            _fields_ = [
+                ("wMid", wintypes.WORD), ("wPid", wintypes.WORD),
+                ("vDriverVersion", wintypes.UINT), ("szPname", wintypes.WCHAR * 32),
+                ("dwFormats", wintypes.DWORD), ("wChannels", wintypes.WORD),
+                ("wReserved1", wintypes.WORD), ("dwSupport", wintypes.DWORD),
+            ]
+
+        winmm = ctypes.windll.winmm
+        ins, outs = [], []
+        for i in range(winmm.waveInGetNumDevs()):
+            caps = WAVEINCAPSW()
+            if winmm.waveInGetDevCapsW(i, ctypes.byref(caps), ctypes.sizeof(caps)) == 0:
+                ins.append(caps.szPname)
+        for i in range(winmm.waveOutGetNumDevs()):
+            caps = WAVEOUTCAPSW()
+            if winmm.waveOutGetDevCapsW(i, ctypes.byref(caps), ctypes.sizeof(caps)) == 0:
+                outs.append(caps.szPname)
+        return (tuple(ins), tuple(outs))
+    except Exception:
+        return ()
 
 
 def get_audio_devices(p: pyaudio.PyAudio) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:

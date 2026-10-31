@@ -11,11 +11,14 @@ from typing import Optional
 
 import customtkinter as ctk
 
-from transcribbler.core.audio import get_audio_devices
+from transcribbler.core.audio import get_audio_devices, get_device_topology_signature
 from transcribbler.core.events import TranscriptEntry
 from transcribbler.core.session import TranscriptionSession
-from transcribbler.ui.components import format_entry_block
+from transcribbler.ui.components import Tooltip, format_entry_block
 from transcribbler.ui.styles import (
+    BTN_ACCENT_FG,
+    BTN_ACCENT_HOVER,
+    BTN_BUSY_FG,
     BTN_NEUTRAL_FG,
     BTN_NEUTRAL_HOVER,
     BTN_START_FG,
@@ -33,6 +36,8 @@ from transcribbler.ui.styles import (
 )
 import pyaudiowpatch as pyaudio
 
+RESCAN_TOOLTIP = "Rescan audio devices — detect newly plugged-in USB / Bluetooth headsets"
+
 
 class TranscribblerApp(ctk.CTk):
     """Main Transcribbler desktop GUI application."""
@@ -48,6 +53,8 @@ class TranscribblerApp(ctk.CTk):
         self.session: Optional[TranscriptionSession] = None
         self.event_queue: queue.Queue[TranscriptEntry] = queue.Queue()
         self.activity_queue: queue.Queue[tuple[str, bool, float]] = queue.Queue()
+        self.device_queue: queue.Queue[tuple] = queue.Queue()
+        self._refreshing = False
 
         self.entries: list[TranscriptEntry] = []
         self._entry_index_by_id: dict[str, int] = {}
@@ -69,6 +76,9 @@ class TranscribblerApp(ctk.CTk):
         self._build_content_area()
         self._build_status_bar()
         self._load_devices()
+        self._watcher_stop = threading.Event()
+        self.hotplug_queue: queue.Queue[bool] = queue.Queue()
+        self._start_hotplug_watcher()
 
         self.after(100, self._process_events)
 
@@ -229,36 +239,166 @@ class TranscribblerApp(ctk.CTk):
         )
         self.status_label.pack(side="left", padx=10)
 
+        self.refresh_btn = ctk.CTkButton(
+            self.status_bar, text="⟳ Rescan", width=88,
+            fg_color=BTN_ACCENT_FG, hover_color=BTN_ACCENT_HOVER,
+            text_color="#ffffff", text_color_disabled="#ffffff",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            command=lambda: self._refresh_devices_async(reason="manual"),
+        )
+        self.refresh_btn.pack(side="right", padx=(2, 6), pady=2)
+        self.refresh_tooltip = Tooltip(self.refresh_btn, RESCAN_TOOLTIP)
+
         self.spk_combo = ctk.CTkComboBox(
             self.status_bar, values=["Default Loopback"],
-            width=230, state="readonly",
+            width=215, state="readonly", command=self._on_device_changed,
         )
         self.spk_combo.pack(side="right", padx=6, pady=2)
         ctk.CTkLabel(self.status_bar, text="Speaker:").pack(side="right", padx=(6, 2))
 
         self.mic_combo = ctk.CTkComboBox(
             self.status_bar, values=["Default Microphone"],
-            width=230, state="readonly",
+            width=215, state="readonly", command=self._on_device_changed,
         )
         self.mic_combo.pack(side="right", padx=6, pady=2)
         ctk.CTkLabel(self.status_bar, text="Mic:").pack(side="right", padx=(10, 2))
+
+    @staticmethod
+    def _device_label(d: dict) -> str:
+        return f"[{d['index']}] {d['name']}"
+
+    @staticmethod
+    def _label_name(label: str) -> str:
+        """Strip the '[index] ' prefix so devices can be matched by name when indices shift."""
+        return label.split("] ", 1)[1] if label.startswith("[") and "] " in label else label
 
     def _load_devices(self):
         try:
             p = pyaudio.PyAudio()
             mics, speakers = get_audio_devices(p)
-            self._mics_map = {f"[{d['index']}] {d['name']}": d["index"] for d in mics}
-            self._spks_map = {f"[{d['index']}] {d['name']}": d["index"] for d in speakers}
             p.terminate()
-
-            if self._mics_map:
-                self.mic_combo.configure(values=list(self._mics_map.keys()))
-                self.mic_combo.set(list(self._mics_map.keys())[0])
-            if self._spks_map:
-                self.spk_combo.configure(values=list(self._spks_map.keys()))
-                self.spk_combo.set(list(self._spks_map.keys())[0])
+            self._apply_device_lists(mics, speakers)
         except Exception as e:
             self.status_label.configure(text=f"Device load warning: {e}")
+
+    def _apply_device_lists(self, mics: list, speakers: list) -> list[str]:
+        """Repopulate both dropdowns, preserving the current selection by device name.
+
+        Returns a list of human-readable notes (e.g. selection fell back to default).
+        """
+        notes: list[str] = []
+        for combo, devices, attr, kind in (
+            (self.mic_combo, mics, "_mics_map", "Mic"),
+            (self.spk_combo, speakers, "_spks_map", "Speaker"),
+        ):
+            prev_label = combo.get()
+            prev_name = self._label_name(prev_label)
+            had_real_selection = prev_label in getattr(self, attr)
+
+            new_map = {self._device_label(d): d["index"] for d in devices}
+            setattr(self, attr, new_map)
+            labels = list(new_map.keys())
+            if not labels:
+                continue
+            combo.configure(values=labels)
+
+            match = next((lbl for lbl in labels if self._label_name(lbl) == prev_name), None)
+            if match:
+                combo.set(match)
+            else:
+                combo.set(labels[0])
+                if had_real_selection:
+                    notes.append(f"{kind} '{prev_name}' not found; switched to '{self._label_name(labels[0])}'")
+        return notes
+
+    def _refresh_devices_async(self, reason: str = "manual"):
+        """Rescan audio hardware in a background thread so the GUI never freezes."""
+        if self._refreshing:
+            return
+        self._refreshing = True
+        self._set_rescan_busy(True)
+        self.status_label.configure(text="Scanning audio devices...")
+        session = self.session
+        mic_name = self._label_name(self.mic_combo.get())
+        spk_name = self._label_name(self.spk_combo.get())
+
+        def _worker():
+            try:
+                if session is not None:
+                    # PortAudio only rescans once all PyAudio instances are terminated,
+                    # so the running session must recycle its own instance. Devices are
+                    # matched by name because indices can shift after a hot-plug.
+                    mics, speakers = session.reload_audio_devices(
+                        mic_name=mic_name, speaker_name=spk_name,
+                    )
+                else:
+                    p = pyaudio.PyAudio()
+                    try:
+                        mics, speakers = get_audio_devices(p)
+                    finally:
+                        p.terminate()
+                self.device_queue.put(("ok", reason, mics, speakers, session is not None))
+            except Exception as e:
+                self.device_queue.put(("error", reason, str(e), None, session is not None))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _set_rescan_busy(self, busy: bool) -> None:
+        """Toggle the Rescan button between its normal (teal) and scanning (amber) looks."""
+        if busy:
+            self.refresh_btn.configure(
+                text="⟳ Scanning…", state="disabled", fg_color=BTN_BUSY_FG,
+            )
+        else:
+            self.refresh_btn.configure(
+                text="⟳ Rescan", state="normal", fg_color=BTN_ACCENT_FG,
+            )
+
+    def _on_device_lists_refreshed(self, status, reason, mics, speakers, was_running):
+        self._refreshing = False
+        self._set_rescan_busy(False)
+        if status == "error":
+            self.status_label.configure(text=f"Device refresh failed: {mics}")
+            return
+
+        self.refresh_tooltip.text = (
+            f"{RESCAN_TOOLTIP}\nLast scan {datetime.now():%H:%M:%S} — "
+            f"{len(mics)} mic{'s' if len(mics) != 1 else ''}, "
+            f"{len(speakers)} speaker{'s' if len(speakers) != 1 else ''}"
+        )
+
+        notes = self._apply_device_lists(mics, speakers)
+        if reason == "switch":
+            msg = f"Switched devices → Mic: {self._label_name(self.mic_combo.get())} | Speaker: {self._label_name(self.spk_combo.get())}"
+        elif reason == "hotplug":
+            msg = f"Audio devices changed — list updated ({len(mics)} mics, {len(speakers)} speakers)"
+        else:
+            msg = f"Device list refreshed ({len(mics)} mics, {len(speakers)} speakers)"
+        if notes:
+            msg += " | " + "; ".join(notes)
+        if was_running and self.session is not None:
+            msg += f" | Transcribing → {self.session.out_path}"
+        self.status_label.configure(text=msg)
+
+    def _on_device_changed(self, _choice=None):
+        """Live-switch the capture device while transcribing (no-op when idle)."""
+        if self.session is not None and self.is_running:
+            self._refresh_devices_async(reason="switch")
+
+    def _start_hotplug_watcher(self):
+        """Poll the winmm hardware signature on a daemon thread (keeps the Tk loop smooth)."""
+        def _watch():
+            last = get_device_topology_signature()
+            while not self._watcher_stop.wait(2.5):
+                try:
+                    sig = get_device_topology_signature()
+                except Exception:
+                    continue
+                if sig and sig != last:
+                    last = sig
+                    self.hotplug_queue.put(True)
+
+        threading.Thread(target=_watch, daemon=True).start()
 
     def toggle_session(self):
         if not self.is_running:
@@ -288,8 +428,6 @@ class TranscribblerApp(ctk.CTk):
             self.status_label.configure(
                 text=f"Transcribing... (Translation: {self.session.tname}) | Output: {self.session.out_path}",
             )
-            self.mic_combo.configure(state="disabled")
-            self.spk_combo.configure(state="disabled")
             self.trans_combo.configure(state="disabled")
         except Exception as e:
             self.status_label.configure(text=f"Startup Error: {e}")
@@ -361,6 +499,17 @@ class TranscribblerApp(ctk.CTk):
                 self._entry_index_by_id[entry.id] = len(self.entries)
                 self.entries.append(entry)
             self._render_entry(entry)
+
+        while not self.device_queue.empty():
+            self._on_device_lists_refreshed(*self.device_queue.get_nowait())
+
+        if not self.hotplug_queue.empty():
+            while not self.hotplug_queue.empty():
+                self.hotplug_queue.get_nowait()
+            if self._refreshing:
+                self.hotplug_queue.put(True)  # retry once the current scan finishes
+            else:
+                self._refresh_devices_async(reason="hotplug")
 
         self.after(60, self._process_events)
 
@@ -530,6 +679,7 @@ class TranscribblerApp(ctk.CTk):
         self.font_label.configure(text=f"🔤 {self.font_size}pt")
 
     def destroy(self):
+        self._watcher_stop.set()
         if self.session:
             self.session.stop()
         super().destroy()

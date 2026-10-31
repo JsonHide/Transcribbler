@@ -12,7 +12,7 @@ from typing import Any, Callable, Optional
 import pyaudiowpatch as pyaudio
 
 from transcribbler.config import TRANSCRIPTS_DIR
-from transcribbler.core.audio import Capture, Segmenter, find_loopback
+from transcribbler.core.audio import Capture, Segmenter, find_loopback, get_audio_devices
 from transcribbler.core.engine import Recognizer, make_translator, romanize
 from transcribbler.core.events import TranscriptEntry, Utterance
 
@@ -84,6 +84,7 @@ class TranscriptionSession:
         self._finalized_ids: set[str] = set()
         self._last_interim_source: str = "OTHERS"
         self._work_event = threading.Event()
+        self._device_lock = threading.RLock()
         self.stop_event = threading.Event()
         self.worker_thread: Optional[threading.Thread] = None
 
@@ -122,6 +123,40 @@ class TranscriptionSession:
             del self._latest_interim[src]
             return u
 
+    def _open_capture(self, source: str) -> None:
+        """Open a capture stream for 'ME' or 'OTHERS' on the currently selected device."""
+        if self.p is None:
+            return
+        if source == "ME":
+            dev = (
+                self.p.get_device_info_by_index(self.mic_index)
+                if self.mic_index is not None
+                else self.p.get_default_input_device_info()
+            )
+        else:
+            dev = find_loopback(self.p, self.speaker_index)
+
+        seg = Segmenter(
+            source,
+            self.q,
+            on_activity=self.on_activity,
+            on_final=self._submit_final,
+            on_interim=self._submit_interim,
+        )
+        self.captures.append(Capture(self.p, dev, seg))
+
+    def _open_captures(self) -> None:
+        """Open capture streams for all enabled channels."""
+        if self.enable_mic:
+            self._open_capture("ME")
+        if self.enable_speaker:
+            self._open_capture("OTHERS")
+
+    def _close_captures(self) -> None:
+        for c in self.captures:
+            c.close()
+        self.captures.clear()
+
     def start(self) -> None:
         """Initialize audio devices and start capture + recognition threads with atomic cleanup."""
         self.p = pyaudio.PyAudio()
@@ -133,34 +168,64 @@ class TranscriptionSession:
             self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
             self.worker_thread.start()
 
-            if self.enable_mic:
-                dev = (
-                    self.p.get_device_info_by_index(self.mic_index)
-                    if self.mic_index is not None
-                    else self.p.get_default_input_device_info()
-                )
-                seg = Segmenter(
-                    "ME",
-                    self.q,
-                    on_activity=self.on_activity,
-                    on_final=self._submit_final,
-                    on_interim=self._submit_interim,
-                )
-                self.captures.append(Capture(self.p, dev, seg))
-
-            if self.enable_speaker:
-                dev = find_loopback(self.p, self.speaker_index)
-                seg = Segmenter(
-                    "OTHERS",
-                    self.q,
-                    on_activity=self.on_activity,
-                    on_final=self._submit_final,
-                    on_interim=self._submit_interim,
-                )
-                self.captures.append(Capture(self.p, dev, seg))
+            with self._device_lock:
+                self._open_captures()
         except Exception:
             self.stop()
             raise
+
+    def reload_audio_devices(
+        self,
+        mic_device_index: Optional[int] = None,
+        speaker_device_index: Optional[int] = None,
+        mic_name: Optional[str] = None,
+        speaker_name: Optional[str] = None,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Re-enumerate audio hardware and reopen capture streams on the chosen devices.
+
+        PortAudio only rescans Windows endpoints after every PyAudio instance is terminated,
+        so this closes the active streams, terminates PyAudio, and re-creates it. The
+        SenseVoice recognizer, worker thread, and transcript file stay alive throughout.
+        Devices may be given by name (preferred, since indices shift after hot-plug) or index;
+        unplugged devices fall back to the system default. Returns (mics, speakers).
+        """
+        with self._device_lock:
+            self._close_captures()
+            if self.p:
+                try:
+                    self.p.terminate()
+                except Exception:
+                    pass
+            self.p = pyaudio.PyAudio()
+            mics, speakers = get_audio_devices(self.p)
+
+            def _resolve(devices, name, index):
+                if name:
+                    for d in devices:
+                        if d["name"] == name:
+                            return d["index"]
+                    return None
+                return index if index in {d["index"] for d in devices} else None
+
+            self.mic_index = _resolve(mics, mic_name, mic_device_index)
+            self.speaker_index = _resolve(speakers, speaker_name, speaker_device_index)
+
+            if self.stop_event.is_set():
+                # Session stopped while the refresh was queued: don't leave PortAudio open
+                try:
+                    self.p.terminate()
+                except Exception:
+                    pass
+                self.p = None
+            else:
+                for source, enabled in (("ME", self.enable_mic), ("OTHERS", self.enable_speaker)):
+                    if not enabled:
+                        continue
+                    try:
+                        self._open_capture(source)
+                    except Exception as e:
+                        print(f"[Transcribbler] Failed to open {source} device: {e}", file=sys.stderr)
+            return mics, speakers
 
     def _worker_loop(self) -> None:
         """Process finalized (priority FIFO) and interim (drop-stale) utterances."""
@@ -237,28 +302,38 @@ class TranscriptionSession:
             with self._interim_lock:
                 self._latest_interim.pop(source, None)
 
-        for c in self.captures:
-            if c.segmenter.source == source:
-                c.set_enabled(enabled)
+        with self._device_lock:
+            found = False
+            for c in self.captures:
+                if c.segmenter.source == source:
+                    c.set_enabled(enabled)
+                    found = True
+            # Channel was disabled when the stream was (re)opened: open it now
+            if enabled and not found and self.p is not None and not self.stop_event.is_set():
+                try:
+                    self._open_capture(source)
+                except Exception as e:
+                    print(f"[Transcribbler] Failed to open {source} device: {e}", file=sys.stderr)
 
     def stop(self) -> None:
         """Stop audio streams, drain queue, and shut down cleanly."""
-        for c in self.captures:
-            c.close()
-        self.captures.clear()
+        # Signal stop first so a concurrent device reload won't reopen any streams
+        self.stop_event.set()
+        with self._device_lock:
+            self._close_captures()
 
         with self._interim_lock:
             self._latest_interim.clear()
 
-        self.stop_event.set()
         self._work_event.set()
         if self.worker_thread and self.worker_thread.is_alive():
             self.worker_thread.join(timeout=5.0)
             self.worker_thread = None
 
-        if self.p:
-            try:
-                self.p.terminate()
-            except Exception:
-                pass
-            self.p = None
+        with self._device_lock:
+            if self.p:
+                try:
+                    self.p.terminate()
+                except Exception:
+                    pass
+                self.p = None

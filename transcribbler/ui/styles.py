@@ -16,6 +16,13 @@ BTN_STOP_FG = "#c92a2a"
 BTN_STOP_HOVER = "#a61e1e"
 BTN_NEUTRAL_FG = "#495057"
 BTN_NEUTRAL_HOVER = "#343a40"
+BTN_ACCENT_FG = "#1098ad"       # Rescan button (teal: distinct from mic/speaker/start/stop)
+BTN_ACCENT_HOVER = "#15aabf"
+BTN_BUSY_FG = "#f59f00"         # Rescan button while scanning (amber)
+
+# Tooltip colors
+TOOLTIP_BG = "#212529"
+TOOLTIP_FG = "#f1f3f5"
 
 # Text colors
 TEXT_PRIMARY = "#c1c2c5"
