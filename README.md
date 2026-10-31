@@ -16,16 +16,16 @@
   - **Mandarin**: Tone-marked Pinyin (via `pypinyin`).
   - **Cantonese**: Accurate Jyutping romanization (via `pycantonese`).
 - 🌍 **Translation Options**:
-  - **Off**: Fast transcription & romanization only.
+  - **Off**: Fast transcription & romanization only. Completely suppresses redundant `EN:` translation lines for cleaner output.
   - **Offline (Argos Translate + OpenCC)**: 100% private, on-device translation from Chinese to English with zero network requests.
   - **Cloud (Azure Translator / Google Cloud Translation)**: Dedicated high-quality Cantonese (`yue`) and Mandarin (`zh`) translation to English.
 - 🖥️ **Modern Desktop GUI (CustomTkinter)**:
   - **Dual-Column Split View (Default)**: Dedicated side-by-side feed with `ME` on the left and `OTHERS` on the right.
   - **Unified Timeline View**: One-click toggle to a single chronological stream with colored speaker badges.
-  - **Source Filtering**: Filter on the fly between **All Sources**, **Microphone Only**, or **Speaker Only**.
-  - **Live VAD Activity LEDs**: Pulsing visual indicators when speech is actively detected on either channel.
+  - **Source Filtering**: Filter on the fly between **All Sources**, **Microphone Only**, or **Speaker Only** (synchronized across both views).
+  - **Live VAD Activity LEDs**: Pulsing visual indicators when speech is actively detected on either channel, backed by an auto-reset watchdog for silent audio streams.
   - **Productivity Tools**: Floating **Always on Top** overlay mode, font size scaling (`A-` / `A+`), quick **📋 Copy** to clipboard, **💾 Save** transcript to text file, and instant **Clear**.
-- 💻 **Headless CLI Mode**: Full-featured command-line interface preserving complete terminal compatibility and automated piping support.
+- 💻 **Headless CLI Mode**: Full-featured command-line interface preserving complete terminal compatibility, automated piping support, and graceful `Ctrl+C` interrupt handling in PowerShell.
 
 ---
 
@@ -52,12 +52,11 @@ Transcribbler/
 │   │   ├── styles.py                          # Design tokens, dark mode colors, fonts
 │   │   ├── components.py                      # Utterance formatting and helpers
 │   │   └── app.py                             # TranscribblerApp (CustomTkinter UI)
-│   └── cli.py                                 # Headless CLI entrypoint
+│   └── cli.py                                 # Headless CLI entrypoint (with signal handling)
 ├── main.py                                    # Master entrypoint (GUI default or --cli)
 ├── requirements.txt
-├── README.md
-├── TRANSCRIBBLER_IMPLEMENTATION_v3.md         # Full architectural specification (v3.0)
-└── TRANSCRIBBLER_IMPLEMENTATION_v2.md         # Reference implementation (v2.0)
+├── .gitignore
+└── README.md
 ```
 
 ---
@@ -144,6 +143,9 @@ python main.py --cli --translator offline
 python main.py --cli --mic-device 1 --speaker-device 10 --out transcripts/meeting_notes.txt
 ```
 
+> [!TIP]
+> Press **`Ctrl+C`** at any time to gracefully drain pending transcriptions and stop the CLI.
+
 #### Available CLI Options:
 ```
   --translator {ask,offline,azure,google,off}  Translation backend (default: ask)
@@ -189,13 +191,23 @@ Transcripts are written to both the interface and `transcripts/transcript_YYYYMM
 
 [14:02:15] [OTHERS] (en)
   Text:     Sure, let me share the slide deck on my screen.
-  EN:       Sure, let me share the slide deck on my screen.
 
 [14:02:28] [OTHERS] (zh)
   Text:     好的，我们现在开始讨论第二项议题
   Pinyin:   hǎo de, wǒ men xiàn zài kāi shǐ tǎo lùn dì èr xiàng yì tí
   EN:       Alright, let's now discuss the second agenda item.
 ```
+
+*(Note: When Translation is set to `off`, the `EN:` translation lines are completely omitted for cleaner transcripts).*
+
+---
+
+## Release Highlights (v0.3.0)
+
+- **Graceful CLI Shutdown (v0.3.0)**: Fixed PowerShell `Ctrl+C` interruption by converting the uninterruptible wait into a periodic polling loop and adding Windows `SIGBREAK` signal mapping.
+- **Cleaner Transcripts when Translation is Off (v0.2.0)**: Suppressed redundant `EN:` duplicate lines when Translate is set to `off`.
+- **Repository Optimization (v0.3.0)**: Streamlined git repository by excluding internal implementation markdowns via `.gitignore`.
+- **Desktop UI Enhancements (v0.1.0)**: Added Dual-Column view, Unified Timeline view, dynamic font scaling, copy/save transcript buttons, and live VAD indicators with idle auto-reset.
 
 ---
 
