@@ -4,6 +4,7 @@ from __future__ import annotations
 import html
 import os
 import re
+from pathlib import Path
 from typing import Any, Optional, Tuple
 
 import numpy as np
@@ -11,9 +12,25 @@ import pycantonese
 from pypinyin import Style, lazy_pinyin
 import sherpa_onnx
 
-from transcribbler.config import MODEL_DIR, TARGET_SR, YUE_CHARS
+from transcribbler.config import (
+    DEFAULT_EN_ENGINE,
+    MOONSHINE_EN_DIR,
+    PARAKEET_EN_DIR,
+    SENSE_VOICE_DIR,
+    TARGET_SR,
+    YUE_CHARS,
+)
 
 TAG_RE = re.compile(r"<\|[^|]*\|>")
+
+
+def _pick_file(directory: Path, *candidates: str) -> Optional[Path]:
+    """Return the first candidate filename that exists inside directory."""
+    for name in candidates:
+        p = directory / name
+        if p.is_file():
+            return p
+    return None
 
 
 def guess_lang(text: str) -> str:
@@ -24,15 +41,97 @@ def guess_lang(text: str) -> str:
 
 
 class Recognizer:
-    """SenseVoice-Small offline recognizer via sherpa-onnx (int8, CPU)."""
+    """Language-driven dual-engine ASR selector via sherpa-onnx (CPU, INT8).
 
-    def __init__(self, language: str = "auto", threads: int = 4):
-        model_file = MODEL_DIR / "model.int8.onnx"
-        tokens_file = MODEL_DIR / "tokens.txt"
+    - language == 'en':
+        1. Primary: sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 (from_transducer, nemo_transducer)
+        2. Fallback: sherpa-onnx-moonshine-base-en-int8 (from_moonshine)
+    - language == 'auto' (or 'zh' / 'yue'):
+        - sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17 (from_sense_voice, use_itn=True)
+    """
 
-        if not model_file.exists() or not tokens_file.exists():
+    def __init__(self, language: str = "auto", threads: int = 4, en_engine: str = "auto"):
+        self.language = language
+        self.threads = threads
+        self.en_engine = (en_engine if en_engine and en_engine != "auto" else DEFAULT_EN_ENGINE) or "auto"
+        self.forced = None if language == "auto" else language
+        self.engine_type = "sense_voice"
+        self.engine_name = "SenseVoice-Small (int8)"
+        self.rec: Any = None
+
+        if language == "en":
+            loaders = (
+                (self._try_load_moonshine, self._try_load_parakeet)
+                if self.en_engine == "moonshine"
+                else (self._try_load_parakeet, self._try_load_moonshine)
+            )
+            loaded = any(loader(threads) for loader in loaders)
+            if not loaded:
+                raise RuntimeError(
+                    f"English ASR model files missing at:\n"
+                    f"  - Primary (Parakeet): {PARAKEET_EN_DIR}\n"
+                    f"  - Fallback (Moonshine): {MOONSHINE_EN_DIR}\n"
+                    "Please download sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 (or "
+                    "sherpa-onnx-moonshine-base-en-int8) into models/.\n"
+                    "See Section 6.3 in TRANSCRIBBLER_IMPLEMENTATION_v3.md for instructions."
+                )
+        else:
+            self._load_sense_voice(language, threads)
+
+    def _try_load_parakeet(self, threads: int) -> bool:
+        if not PARAKEET_EN_DIR.is_dir():
+            return False
+        encoder = _pick_file(PARAKEET_EN_DIR, "encoder.int8.onnx", "encoder.onnx")
+        decoder = _pick_file(PARAKEET_EN_DIR, "decoder.int8.onnx", "decoder.onnx")
+        joiner = _pick_file(PARAKEET_EN_DIR, "joiner.int8.onnx", "joiner.onnx")
+        tokens = _pick_file(PARAKEET_EN_DIR, "tokens.txt")
+        if not (encoder and decoder and joiner and tokens):
+            return False
+
+        self.rec = sherpa_onnx.OfflineRecognizer.from_transducer(
+            encoder=str(encoder),
+            decoder=str(decoder),
+            joiner=str(joiner),
+            tokens=str(tokens),
+            num_threads=threads,
+            provider="cpu",
+            model_type="nemo_transducer",
+        )
+        self.engine_type = "parakeet"
+        self.engine_name = "Parakeet-TDT-0.6B-v2 (int8)"
+        return True
+
+    def _try_load_moonshine(self, threads: int) -> bool:
+        if not MOONSHINE_EN_DIR.is_dir():
+            return False
+        preprocess = _pick_file(MOONSHINE_EN_DIR, "preprocess.onnx")
+        encode = _pick_file(MOONSHINE_EN_DIR, "encode.int8.onnx", "encode.onnx")
+        uncached = _pick_file(MOONSHINE_EN_DIR, "uncached_decode.int8.onnx", "uncached_decode.onnx")
+        cached = _pick_file(MOONSHINE_EN_DIR, "cached_decode.int8.onnx", "cached_decode.onnx")
+        tokens = _pick_file(MOONSHINE_EN_DIR, "tokens.txt")
+        if not (preprocess and encode and uncached and cached and tokens):
+            return False
+
+        self.rec = sherpa_onnx.OfflineRecognizer.from_moonshine(
+            preprocessor=str(preprocess),
+            encoder=str(encode),
+            uncached_decoder=str(uncached),
+            cached_decoder=str(cached),
+            tokens=str(tokens),
+            num_threads=threads,
+            provider="cpu",
+        )
+        self.engine_type = "moonshine"
+        self.engine_name = "Moonshine-Base-EN (int8)"
+        return True
+
+    def _load_sense_voice(self, language: str, threads: int) -> None:
+        model_file = _pick_file(SENSE_VOICE_DIR, "model.int8.onnx", "model.onnx")
+        tokens_file = _pick_file(SENSE_VOICE_DIR, "tokens.txt")
+
+        if not (model_file and tokens_file):
             raise RuntimeError(
-                f"Model files missing at {MODEL_DIR}.\n"
+                f"Model files missing at {SENSE_VOICE_DIR}.\n"
                 "Please download the SenseVoice INT8 model package before running.\n"
                 "See Section 6.3 in TRANSCRIBBLER_IMPLEMENTATION_v3.md for instructions."
             )
@@ -45,7 +144,8 @@ class Recognizer:
             language=language,
             provider="cpu",
         )
-        self.forced = None if language == "auto" else language
+        self.engine_type = "sense_voice"
+        self.engine_name = "SenseVoice-Small (int8)"
 
     def run(self, audio: np.ndarray) -> Tuple[str, Optional[str]]:
         """Recognize an utterance. Returns (text, lang) or ("", None) if empty."""
@@ -56,7 +156,13 @@ class Recognizer:
 
         raw_text = getattr(res, "text", "") or ""
 
-        # Extract language tag BEFORE stripping control tokens
+        if self.engine_type in ("parakeet", "moonshine"):
+            text = TAG_RE.sub("", raw_text).strip()
+            if not text:
+                return "", None
+            return text, "en"
+
+        # SenseVoice: extract language tag BEFORE stripping control tokens
         lang = self.forced
         if not lang:
             lang_attr = getattr(res, "lang", "")

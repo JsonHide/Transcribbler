@@ -37,7 +37,12 @@ def run_cli() -> None:
     ap.add_argument(
         "--language", default="auto",
         choices=["auto", "en", "zh", "yue"],
-        help="Force recognition language or use 'auto' detection (default: auto)",
+        help="Recognition language: 'auto' (SenseVoice multilingual) or 'en' (Parakeet-TDT / Moonshine) (default: auto)",
+    )
+    ap.add_argument(
+        "--en-engine", default="auto",
+        choices=["auto", "parakeet", "moonshine"],
+        help="Preferred engine when --language=en: 'auto' (Parakeet then Moonshine), 'parakeet', or 'moonshine'",
     )
     ap.add_argument(
         "--output-mode", default="all",
@@ -98,6 +103,7 @@ def run_cli() -> None:
         session = TranscriptionSession(
             translator_choice=args.translator,
             language=args.language,
+            en_engine=args.en_engine,
             output_mode=args.output_mode,
             threads=args.threads,
             mic_device_index=args.mic_device,
@@ -113,7 +119,10 @@ def run_cli() -> None:
     print("Starting Transcribbler in CLI mode. Press Ctrl+C to stop.\n")
     try:
         session.start()
-        print(f"Listening... (Translation: {session.tname}) | Output: {session.out_path}\n")
+        print(
+            f"Listening... [ASR: {session.engine_name} | Translation: {session.tname}] "
+            f"| Output: {session.out_path}\n"
+        )
         while not session.stop_event.is_set():
             session.stop_event.wait(0.5)
     except KeyboardInterrupt:

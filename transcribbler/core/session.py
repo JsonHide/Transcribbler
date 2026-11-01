@@ -49,6 +49,7 @@ class TranscriptionSession:
         self,
         translator_choice: str = "off",
         language: str = "auto",
+        en_engine: str = "auto",
         output_mode: str = "all",
         threads: int = 4,
         mic_device_index: Optional[int] = None,
@@ -60,6 +61,7 @@ class TranscriptionSession:
         on_activity: Optional[Callable[[str, bool, float], None]] = None,
     ):
         self.language = language
+        self.en_engine = en_engine
         self.output_mode = output_mode
         self.threads = threads
         self.mic_index = mic_device_index
@@ -70,6 +72,7 @@ class TranscriptionSession:
         self.on_activity = on_activity
 
         self.translator, self.tname = make_translator(translator_choice)
+        self.engine_name: str = "SenseVoice-Small (int8)"
         self.out_path = output_path or (
             TRANSCRIPTS_DIR / f"transcript_{datetime.now():%Y%m%d_%H%M%S}.txt"
         )
@@ -164,7 +167,8 @@ class TranscriptionSession:
         self._work_event.clear()
 
         try:
-            self.rec = Recognizer(self.language, self.threads)
+            self.rec = Recognizer(self.language, self.threads, en_engine=self.en_engine)
+            self.engine_name = self.rec.engine_name
             self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
             self.worker_thread.start()
 

@@ -15,8 +15,9 @@
 - 🎙️ **Dual-Channel Audio Capture**:
   - **Microphone (`ME`)**: Captures your local microphone voice.
   - **System Loopback (`OTHERS`)**: Directly captures speaker and headset audio (meetings, Zoom, Teams, YouTube, browser calls) without requiring virtual audio cables.
-- 🌐 **Multilingual Automatic Speech Recognition**:
-  - High-accuracy recognition for **English (`en`)**, **Mandarin Chinese (`zh`)**, and **Cantonese (`yue`)** using **SenseVoice-Small** via `sherpa-onnx` (INT8-quantized, CPU-optimized).
+- 🌐 **Language-Driven Dual-Engine ASR Selector (`sherpa-onnx`, INT8 CPU)**:
+  - **`Lang = auto` (Multilingual / Cantonese / Mandarin)**: Loads **SenseVoice-Small (INT8)** via `OfflineRecognizer.from_sense_voice(use_itn=True)` for instantaneous trilingual switching (`en`, `zh`, `yue`), `<|yue|>` tag detection, and full compatibility with local Pinyin / Jyutping romanization.
+  - **`Lang = en` (English Meetings & Podcasts)**: Dynamically routes to **NeMo Parakeet-TDT-0.6B-v2 (INT8)** (`OfflineRecognizer.from_transducer(model_type="nemo_transducer")`) as the primary engine—with automatic fallback to **Moonshine-Base-EN (INT8)** (`OfflineRecognizer.from_moonshine`) for ultra-low-end PCs—delivering near-instantaneous CPU decoding with top-tier conversational English accuracy, native capitalization, and punctuation.
 - 🔤 **Automatic Romanization**:
   - **Mandarin**: Tone-marked Pinyin (via `pypinyin`).
   - **Cantonese**: Accurate Jyutping romanization (via `pycantonese`).
@@ -41,8 +42,19 @@
 ```
 Transcribbler/
 ├── models/
-│   └── sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/
-│       ├── model.int8.onnx
+│   ├── sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/
+│   │   ├── model.int8.onnx
+│   │   └── tokens.txt
+│   ├── sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8/          # Primary English engine (Lang=en)
+│   │   ├── encoder.int8.onnx
+│   │   ├── decoder.int8.onnx
+│   │   ├── joiner.int8.onnx
+│   │   └── tokens.txt
+│   └── sherpa-onnx-moonshine-base-en-int8/                  # Optional lightweight English fallback
+│       ├── preprocess.onnx
+│       ├── encode.int8.onnx
+│       ├── uncached_decode.int8.onnx
+│       ├── cached_decode.int8.onnx
 │       └── tokens.txt
 ├── transcripts/                               # Auto-created transcript output directory
 ├── transcribbler/
@@ -96,10 +108,9 @@ pip install -r requirements.txt
 > python main.py --cli --install-offline-pack
 > ```
 
-### 3. Download Speech Model (One-Time)
+### 3. Download Speech Models (One-Time)
 
-Download and extract the INT8 SenseVoice model package (~230 MB):
-
+#### A. Multilingual Engine (`Lang = auto`: English, Cantonese, Mandarin — SenseVoice-Small INT8, ~230 MB)
 ```powershell
 mkdir -p models
 cd models
@@ -109,7 +120,25 @@ rm sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2
 cd ..
 ```
 
-Ensure `models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/model.int8.onnx` exists.
+#### B. Primary English Engine (`Lang = en`: Meetings & Podcasts — NeMo Parakeet-TDT-0.6B-v2 INT8)
+```powershell
+mkdir -p models
+cd models
+curl -L -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2
+tar -xf sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2
+rm sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2
+cd ..
+```
+
+#### C. Optional Ultra-Low-End PC English Fallback (`Lang = en`: Moonshine-Base-EN INT8)
+```powershell
+mkdir -p models
+cd models
+curl -L -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-base-en-int8.tar.bz2
+tar -xf sherpa-onnx-moonshine-base-en-int8.tar.bz2
+rm sherpa-onnx-moonshine-base-en-int8.tar.bz2
+cd ..
+```
 
 ---
 
@@ -124,6 +153,7 @@ python main.py
 ```
 ![alt text](gui.png)
 - **Start Capture**: Click **▶ Start** to begin listening to your mic and system audio.
+- **Select Language / ASR Engine (`Lang:`)**: Choose **`auto`** for multilingual SenseVoice-Small (English, Cantonese, Mandarin with Pinyin/Jyutping) or **`en`** to dynamically route to NeMo Parakeet-TDT-0.6B-v2 (or Moonshine-Base-EN) for dedicated English meetings and podcasts. The active ASR engine is displayed in the bottom status bar.
 - **Channel Mute / Pause**: Click **`[Disable]`** or **`[Enable]`** directly in either the `Microphone (ME)` or `Speaker / System (OTHERS)` header to pause or resume capturing that channel live without stopping the session.
 - **Switch Views**: Toggle between **Dual Column** (side-by-side) and **Unified Timeline** (single chronological stream).
 - **Refresh / Switch Audio Devices**: Newly connected USB or Bluetooth headsets appear in the **Mic:** / **Speaker:** dropdowns automatically within ~3 seconds; click the teal **⟳ Rescan** button (bottom-right) to force a rescan. The dropdowns stay active while transcribing — pick a different device and capture switches over instantly (your selection is kept by name even if Windows renumbers devices, and falls back to the default if a device is unplugged).
@@ -145,6 +175,9 @@ python main.py --cli --list-devices
 # Meeting transcription (speakers only, forced Cantonese, Azure translation)
 python main.py --cli --no-mic --language yue --translator azure --output-mode translate
 
+# Dedicated English meeting/podcast mode (uses Parakeet-TDT-0.6B-v2 or Moonshine fallback)
+python main.py --cli --language en --translator off
+
 # Offline-only mode (zero telemetry/cloud usage)
 python main.py --cli --translator offline
 
@@ -158,7 +191,8 @@ python main.py --cli --mic-device 1 --speaker-device 10 --out transcripts/meetin
 #### Available CLI Options:
 ```
   --translator {ask,offline,azure,google,off}  Translation backend (default: ask)
-  --language {auto,en,zh,yue}                  Recognition language (default: auto)
+  --language {auto,en,zh,yue}                  Recognition language: 'auto' (SenseVoice) or 'en' (Parakeet/Moonshine)
+  --en-engine {auto,parakeet,moonshine}        Preferred English engine when --language=en (default: auto)
   --output-mode {original,roman,translate,all} Fields to output (default: all)
   --threads THREADS                            CPU threads for ONNX ASR (default: 4)
   --no-mic                                     Disable microphone capture
@@ -213,6 +247,7 @@ Transcripts are written to both the interface and `transcripts/transcript_YYYYMM
 
 ## Release Highlights
 
+- **Language-Driven Dual-Engine ASR Selector (v0.7.0)**: Added a **`Lang:`** dropdown (`auto` | `en`) in the GUI top bar and upgraded `--language` in the CLI to dynamically route between **SenseVoice-Small (INT8)** for multilingual Cantonese/Mandarin/English (`auto`) and **NeMo Parakeet-TDT-0.6B-v2 (INT8)** (with **Moonshine-Base-EN INT8** fallback) for high-accuracy conversational English (`en`) with native capitalization and punctuation.
 - **Dynamic Audio Device Refresh (v0.6.0)**: Added a teal **⟳ Rescan** button (with hover tooltip and scanning state) and automatic USB / Bluetooth hot-plug detection for the Mic and Speaker lists, plus live device switching during a session (only the audio streams are recycled; the SenseVoice model, worker, and transcript file stay running).
 - **Near-Real-Time Streaming Transcription (v0.5.0)**: Upgraded from 25-second delayed batch chunking to streaming transcription with 1.5–2.5s responsiveness. Features in-place GUI interim text replacement (`⏳ ...`), drop-stale interim backpressure preventing worker backlog, two-tier adaptive clause segmentation, and lowest-RMS syllable splitting with frame carry-over to eliminate mid-word cuts.
 - **Channel Capture Toggles (v0.4.0)**: Added live **`[Disable]` / `[Enable]`** buttons in the Microphone and Speaker headers to pause and resume audio capturing independently at the hardware/audio callback level.

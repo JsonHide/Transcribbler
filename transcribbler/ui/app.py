@@ -37,6 +37,10 @@ from transcribbler.ui.styles import (
 import pyaudiowpatch as pyaudio
 
 RESCAN_TOOLTIP = "Rescan audio devices — detect newly plugged-in USB / Bluetooth headsets"
+LANG_TOOLTIP = (
+    "auto: SenseVoice-Small (Multilingual EN / Cantonese / Mandarin + Romanization)\n"
+    "en: Parakeet-TDT-0.6B-v2 / Moonshine (English Meetings & Podcasts)"
+)
 
 
 class TranscribblerApp(ctk.CTk):
@@ -100,7 +104,7 @@ class TranscribblerApp(ctk.CTk):
         self.filter_combo = ctk.CTkComboBox(
             row1,
             values=["All Sources", "Microphone Only", "Speaker Only"],
-            width=145, command=self._on_filter_changed, state="readonly",
+            width=135, command=self._on_filter_changed, state="readonly",
         )
         self.filter_combo.set("All Sources")
         self.filter_combo.pack(side="left", padx=3)
@@ -109,16 +113,26 @@ class TranscribblerApp(ctk.CTk):
         self.layout_combo = ctk.CTkComboBox(
             row1,
             values=["Dual Column", "Unified Timeline"],
-            width=140, command=self._on_layout_changed, state="readonly",
+            width=130, command=self._on_layout_changed, state="readonly",
         )
         self.layout_combo.set("Dual Column")
         self.layout_combo.pack(side="left", padx=3)
+
+        ctk.CTkLabel(row1, text="Lang:").pack(side="left", padx=(6, 3))
+        self.lang_combo = ctk.CTkComboBox(
+            row1,
+            values=["auto", "en"],
+            width=75, state="readonly",
+        )
+        self.lang_combo.set("auto")
+        self.lang_combo.pack(side="left", padx=3)
+        self.lang_tooltip = Tooltip(self.lang_combo, LANG_TOOLTIP)
 
         ctk.CTkLabel(row1, text="Translate:").pack(side="left", padx=(6, 3))
         self.trans_combo = ctk.CTkComboBox(
             row1,
             values=["off", "offline", "azure", "google"],
-            width=95, state="readonly",
+            width=90, state="readonly",
         )
         self.trans_combo.set("off")
         self.trans_combo.pack(side="left", padx=3)
@@ -412,6 +426,7 @@ class TranscribblerApp(ctk.CTk):
 
         self.session = TranscriptionSession(
             translator_choice=self.trans_combo.get(),
+            language=self.lang_combo.get(),
             mic_device_index=mic_idx,
             speaker_device_index=spk_idx,
             enable_mic=self.mic_enabled,
@@ -426,11 +441,17 @@ class TranscribblerApp(ctk.CTk):
                 text="⏹ Stop", fg_color=BTN_STOP_FG, hover_color=BTN_STOP_HOVER, state="normal",
             )
             self.status_label.configure(
-                text=f"Transcribing... (Translation: {self.session.tname}) | Output: {self.session.out_path}",
+                text=(
+                    f"Transcribing... [ASR: {self.session.engine_name} | "
+                    f"Translate: {self.session.tname}] | Output: {self.session.out_path}"
+                ),
             )
+            self.lang_combo.configure(state="disabled")
             self.trans_combo.configure(state="disabled")
         except Exception as e:
             self.status_label.configure(text=f"Startup Error: {e}")
+            self.lang_combo.configure(state="readonly")
+            self.trans_combo.configure(state="readonly")
             if self.session:
                 try:
                     self.session.stop()
@@ -461,6 +482,7 @@ class TranscribblerApp(ctk.CTk):
         self.spk_led.configure(text=f"{LED_IDLE} Idle")
         self.mic_combo.configure(state="readonly")
         self.spk_combo.configure(state="readonly")
+        self.lang_combo.configure(state="readonly")
         self.trans_combo.configure(state="readonly")
 
     def _process_events(self):
