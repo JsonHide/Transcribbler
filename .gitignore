@@ -14,6 +14,7 @@ models/
 
 # Implementation design notes & internal markdown documents
 TRANSCRIBBLER_IMPLEMENTATION*.md
+DESIGN.md
 
 # Generated transcripts and export output
 transcripts/
@@ -30,6 +31,8 @@ __pycache__/
 # Agent and temporary workspace folders
 .agent/
 .agents/
+.stitch/
+.stitch.json
 
 # IDE and editor settings
 .vscode/
