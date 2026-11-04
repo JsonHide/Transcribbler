@@ -17,7 +17,7 @@
   - **System Loopback (`OTHERS`)**: Directly captures speaker and headset audio (meetings, Zoom, Teams, YouTube, browser calls) without requiring virtual audio cables.
 - 🌐 **Language-Driven Dual-Engine ASR Selector (`sherpa-onnx`, INT8 CPU)**:
   - **`Lang = auto` (Multilingual / Cantonese / Mandarin)**: Loads **SenseVoice-Small (INT8)** via `OfflineRecognizer.from_sense_voice(use_itn=True)` for instantaneous trilingual switching (`en`, `zh`, `yue`), `<|yue|>` tag detection, and full compatibility with local Pinyin / Jyutping romanization.
-  - **`Lang = en` (English Meetings & Podcasts)**: Dynamically routes to **NeMo Parakeet-TDT-0.6B-v2 (INT8)** (`OfflineRecognizer.from_transducer(model_type="nemo_transducer")`) as the primary engine—with automatic fallback to **Moonshine-Base-EN (INT8)** (`OfflineRecognizer.from_moonshine`) for ultra-low-end PCs—delivering near-instantaneous CPU decoding with top-tier conversational English accuracy, native capitalization, and punctuation.
+  - **`Lang = en` (English Meetings & Podcasts)**: Dynamically routes to **NeMo Parakeet-TDT-0.6B-v2 (INT8)** (`OfflineRecognizer.from_transducer(model_type="nemo_transducer")`) as the primary engine—with automatic fallback to **Moonshine-Base-EN (INT8)** (`OfflineRecognizer.from_moonshine`) for ultra-low-end PCs—delivering near-instantaneous CPU decoding with top-tier conversational English accuracy, native capitalization, and punctuation. You can also explicitly pick **`auto`**, **`parakeet`**, or **`moonshine`** right from the GUI's **`EN Model:`** dropdown (or via `--en-engine` in CLI).
 - 🔤 **Automatic Romanization**:
   - **Mandarin**: Tone-marked Pinyin (via `pypinyin`).
   - **Cantonese**: Accurate Jyutping romanization (via `pycantonese`).
@@ -28,7 +28,8 @@
 - 🖥️ **Modern Desktop GUI (CustomTkinter)**:
   - **Dual-Column Split View (Default)**: Dedicated side-by-side feed with `ME` on the left and `OTHERS` on the right.
   - **Live Channel Capture Toggles**: Dedicated **`[Disable]` / `[Enable]`** buttons on both `Microphone (ME)` and `Speaker / System (OTHERS)` to instantly pause and resume audio capturing on either channel in real time.
-  - **Unified Timeline View**: One-click toggle to a single chronological stream with colored speaker badges.
+  - **Segmented View Icon Toggle**: One-click segmented icon toggle (`◫` **Dual Column** / `☰` **Unified Timeline** with hover tooltips) to switch between side-by-side columns and a single chronological stream.
+  - **English ASR Model Selector (`EN Model:`)**: Dedicated toolbar dropdown (`auto` | `parakeet` | `moonshine`) that unlocks when `Lang: en` is selected so you can switch English ASR models directly in the GUI.
   - **Source Filtering**: Filter on the fly between **All Sources**, **Microphone Only**, or **Speaker Only** (synchronized across both views).
   - **Live VAD Activity LEDs**: Pulsing visual indicators when speech is actively detected on either channel, backed by an auto-reset watchdog for silent audio streams.
   - **Productivity Tools**: Floating **Always on Top** overlay mode, font size scaling (`A-` / `A+`), quick **📋 Copy** to clipboard, **💾 Save** transcript to text file, and instant **Clear**.
@@ -153,9 +154,9 @@ python main.py
 ```
 ![alt text](gui.png)
 - **Start Capture**: Click **▶ Start** to begin listening to your mic and system audio.
-- **Select Language / ASR Engine (`Lang:`)**: Choose **`auto`** for multilingual SenseVoice-Small (English, Cantonese, Mandarin with Pinyin/Jyutping) or **`en`** to dynamically route to NeMo Parakeet-TDT-0.6B-v2 (or Moonshine-Base-EN) for dedicated English meetings and podcasts. The active ASR engine is displayed in the bottom status bar.
+- **Select Language & English ASR Engine (`Lang:` & `EN Model:`)**: Choose **`auto`** for multilingual SenseVoice-Small (English, Cantonese, Mandarin with Pinyin/Jyutping) or **`en`** for dedicated English meetings and podcasts. Selecting **`en`** unlocks the **`EN Model:`** dropdown where you can choose **`auto`** (Parakeet with Moonshine fallback), **`parakeet`** (NeMo Parakeet-TDT-0.6B-v2), or **`moonshine`** (Moonshine-Base-EN). The active ASR engine is displayed in the bottom status bar.
 - **Channel Mute / Pause**: Click **`[Disable]`** or **`[Enable]`** directly in either the `Microphone (ME)` or `Speaker / System (OTHERS)` header to pause or resume capturing that channel live without stopping the session.
-- **Switch Views**: Toggle between **Dual Column** (side-by-side) and **Unified Timeline** (single chronological stream).
+- **Switch Views**: Click the segmented view icon toggle (`◫` on the left for **Dual Column**, `☰` on the right for **Unified Timeline**; hover either icon for a tooltip).
 - **Refresh / Switch Audio Devices**: Newly connected USB or Bluetooth headsets appear in the **Mic:** / **Speaker:** dropdowns automatically within ~3 seconds; click the teal **⟳ Rescan** button (bottom-right) to force a rescan. The dropdowns stay active while transcribing — pick a different device and capture switches over instantly (your selection is kept by name even if Windows renumbers devices, and falls back to the default if a device is unplugged).
 - **Source Filter**: Select **Microphone Only** or **Speaker Only** to isolate a single channel.
 - **Float Over Apps**: Check **Always on Top** to keep Transcribbler floating beside Zoom, Teams, Google Meet, or video players.
@@ -247,6 +248,7 @@ Transcripts are written to both the interface and `transcripts/transcript_YYYYMM
 
 ## Release Highlights
 
+- **GUI English Model Selector & Segmented View Toggle (v0.8.0)**: Added an **`EN Model:`** dropdown (`auto` | `parakeet` | `moonshine`) next to `Lang:` that unlocks when `Lang = en`, and replaced the `View:` dropdown with a compact segmented icon toggle (`◫` Dual Column / `☰` Unified Timeline) with hover tooltips.
 - **Language-Driven Dual-Engine ASR Selector (v0.7.0)**: Added a **`Lang:`** dropdown (`auto` | `en`) in the GUI top bar and upgraded `--language` in the CLI to dynamically route between **SenseVoice-Small (INT8)** for multilingual Cantonese/Mandarin/English (`auto`) and **NeMo Parakeet-TDT-0.6B-v2 (INT8)** (with **Moonshine-Base-EN INT8** fallback) for high-accuracy conversational English (`en`) with native capitalization and punctuation.
 - **Dynamic Audio Device Refresh (v0.6.0)**: Added a teal **⟳ Rescan** button (with hover tooltip and scanning state) and automatic USB / Bluetooth hot-plug detection for the Mic and Speaker lists, plus live device switching during a session (only the audio streams are recycled; the SenseVoice model, worker, and transcript file stay running).
 - **Near-Real-Time Streaming Transcription (v0.5.0)**: Upgraded from 25-second delayed batch chunking to streaming transcription with 1.5–2.5s responsiveness. Features in-place GUI interim text replacement (`⏳ ...`), drop-stale interim backpressure preventing worker backlog, two-tier adaptive clause segmentation, and lowest-RMS syllable splitting with frame carry-over to eliminate mid-word cuts.

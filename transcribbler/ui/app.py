@@ -33,6 +33,11 @@ from transcribbler.ui.styles import (
     LED_IDLE,
     MIC_HEADER_COLOR,
     SPK_HEADER_COLOR,
+    VIEW_ACTIVE_BG,
+    VIEW_ACTIVE_FG,
+    VIEW_INACTIVE_FG,
+    VIEW_PILL_BG,
+    VIEW_PILL_BORDER,
 )
 import pyaudiowpatch as pyaudio
 
@@ -40,6 +45,12 @@ RESCAN_TOOLTIP = "Rescan audio devices — detect newly plugged-in USB / Bluetoo
 LANG_TOOLTIP = (
     "auto: SenseVoice-Small (Multilingual EN / Cantonese / Mandarin + Romanization)\n"
     "en: Parakeet-TDT-0.6B-v2 / Moonshine (English Meetings & Podcasts)"
+)
+EN_ENGINE_TOOLTIP = (
+    "Only used when Lang = en\n"
+    "auto: Parakeet-TDT-0.6B-v2, falls back to Moonshine if missing\n"
+    "parakeet: Parakeet-TDT-0.6B-v2 (higher accuracy)\n"
+    "moonshine: Moonshine-Base (lighter / faster)"
 )
 
 
@@ -104,29 +115,71 @@ class TranscribblerApp(ctk.CTk):
         self.filter_combo = ctk.CTkComboBox(
             row1,
             values=["All Sources", "Microphone Only", "Speaker Only"],
-            width=135, command=self._on_filter_changed, state="readonly",
+            width=115, command=self._on_filter_changed, state="readonly",
         )
         self.filter_combo.set("All Sources")
         self.filter_combo.pack(side="left", padx=3)
 
-        ctk.CTkLabel(row1, text="View:").pack(side="left", padx=(6, 3))
-        self.layout_combo = ctk.CTkComboBox(
-            row1,
-            values=["Dual Column", "Unified Timeline"],
-            width=130, command=self._on_layout_changed, state="readonly",
+        sep = ctk.CTkFrame(row1, width=1, height=22, fg_color=VIEW_PILL_BORDER)
+        sep.pack(side="left", padx=(6, 6))
+
+        self.view_pill = ctk.CTkFrame(
+            row1, fg_color=VIEW_PILL_BG, border_color=VIEW_PILL_BORDER,
+            border_width=1, corner_radius=6,
         )
-        self.layout_combo.set("Dual Column")
-        self.layout_combo.pack(side="left", padx=3)
+        self.view_pill.pack(side="left", padx=2)
+
+        self.dual_seg = ctk.CTkFrame(
+            self.view_pill, width=32, height=24, corner_radius=5, fg_color=VIEW_ACTIVE_BG,
+        )
+        self.dual_seg.pack(side="left", padx=(3, 1), pady=3)
+        self.dual_seg.pack_propagate(False)
+        self.dual_canvas = tk.Canvas(
+            self.dual_seg, width=16, height=14,
+            bg=VIEW_ACTIVE_BG, highlightthickness=0, bd=0, cursor="hand2",
+        )
+        self.dual_canvas.place(relx=0.5, rely=0.5, anchor="center")
+
+        self.uni_seg = ctk.CTkFrame(
+            self.view_pill, width=32, height=24, corner_radius=5, fg_color=VIEW_PILL_BG,
+        )
+        self.uni_seg.pack(side="left", padx=(1, 3), pady=3)
+        self.uni_seg.pack_propagate(False)
+        self.uni_canvas = tk.Canvas(
+            self.uni_seg, width=16, height=14,
+            bg=VIEW_PILL_BG, highlightthickness=0, bd=0, cursor="hand2",
+        )
+        self.uni_canvas.place(relx=0.5, rely=0.5, anchor="center")
+
+        for w in (self.dual_seg, self.dual_canvas):
+            w.bind("<Button-1>", lambda _e: self._on_layout_changed("Dual Column"))
+        for w in (self.uni_seg, self.uni_canvas):
+            w.bind("<Button-1>", lambda _e: self._on_layout_changed("Unified Timeline"))
+
+        self.dual_tooltip = Tooltip(self.dual_canvas, "Dual Column")
+        self.uni_tooltip = Tooltip(self.uni_canvas, "Unified Timeline")
+        self._update_view_toggle()
 
         ctk.CTkLabel(row1, text="Lang:").pack(side="left", padx=(6, 3))
         self.lang_combo = ctk.CTkComboBox(
             row1,
             values=["auto", "en"],
-            width=75, state="readonly",
+            width=75, command=self._on_lang_changed, state="readonly",
         )
         self.lang_combo.set("auto")
         self.lang_combo.pack(side="left", padx=3)
         self.lang_tooltip = Tooltip(self.lang_combo, LANG_TOOLTIP)
+
+        self.en_engine_label = ctk.CTkLabel(row1, text="EN Model:")
+        self.en_engine_label.pack(side="left", padx=(6, 3))
+        self.en_engine_combo = ctk.CTkComboBox(
+            row1,
+            values=["auto", "parakeet", "moonshine"],
+            width=105, state="disabled",
+        )
+        self.en_engine_combo.set("auto")
+        self.en_engine_combo.pack(side="left", padx=3)
+        self.en_engine_tooltip = Tooltip(self.en_engine_combo, EN_ENGINE_TOOLTIP)
 
         ctk.CTkLabel(row1, text="Translate:").pack(side="left", padx=(6, 3))
         self.trans_combo = ctk.CTkComboBox(
@@ -424,17 +477,18 @@ class TranscribblerApp(ctk.CTk):
         mic_idx = self._mics_map.get(self.mic_combo.get())
         spk_idx = self._spks_map.get(self.spk_combo.get())
 
-        self.session = TranscriptionSession(
-            translator_choice=self.trans_combo.get(),
-            language=self.lang_combo.get(),
-            mic_device_index=mic_idx,
-            speaker_device_index=spk_idx,
-            enable_mic=self.mic_enabled,
-            enable_speaker=self.spk_enabled,
-            on_entry=self.event_queue.put,
-            on_activity=lambda src, sp, lvl: self.activity_queue.put((src, sp, lvl)),
-        )
         try:
+            self.session = TranscriptionSession(
+                translator_choice=self.trans_combo.get(),
+                language=self.lang_combo.get(),
+                en_engine=self.en_engine_combo.get(),
+                mic_device_index=mic_idx,
+                speaker_device_index=spk_idx,
+                enable_mic=self.mic_enabled,
+                enable_speaker=self.spk_enabled,
+                on_entry=self.event_queue.put,
+                on_activity=lambda src, sp, lvl: self.activity_queue.put((src, sp, lvl)),
+            )
             self.session.start()
             self.is_running = True
             self.start_btn.configure(
@@ -447,10 +501,12 @@ class TranscribblerApp(ctk.CTk):
                 ),
             )
             self.lang_combo.configure(state="disabled")
+            self.en_engine_combo.configure(state="disabled")
             self.trans_combo.configure(state="disabled")
         except Exception as e:
             self.status_label.configure(text=f"Startup Error: {e}")
             self.lang_combo.configure(state="readonly")
+            self._on_lang_changed(self.lang_combo.get())
             self.trans_combo.configure(state="readonly")
             if self.session:
                 try:
@@ -483,6 +539,7 @@ class TranscribblerApp(ctk.CTk):
         self.mic_combo.configure(state="readonly")
         self.spk_combo.configure(state="readonly")
         self.lang_combo.configure(state="readonly")
+        self._on_lang_changed(self.lang_combo.get())
         self.trans_combo.configure(state="readonly")
 
     def _process_events(self):
@@ -607,14 +664,44 @@ class TranscribblerApp(ctk.CTk):
 
         self._rebuild_unified_textbox()
 
+    def _on_lang_changed(self, choice: str) -> None:
+        """Enable the EN Model selector only when Lang = en."""
+        if choice == "en":
+            self.en_engine_combo.configure(state="readonly")
+        else:
+            self.en_engine_combo.configure(state="disabled")
+
+    def _update_view_toggle(self) -> None:
+        """Redraw the Dual Column / Unified Timeline segmented icon pill."""
+        is_dual = self.layout_mode == "dual"
+        dual_bg = VIEW_ACTIVE_BG if is_dual else VIEW_PILL_BG
+        uni_bg = VIEW_PILL_BG if is_dual else VIEW_ACTIVE_BG
+        dual_fg = VIEW_ACTIVE_FG if is_dual else VIEW_INACTIVE_FG
+        uni_fg = VIEW_INACTIVE_FG if is_dual else VIEW_ACTIVE_FG
+
+        self.dual_seg.configure(fg_color=dual_bg)
+        self.dual_canvas.configure(bg=dual_bg)
+        self.dual_canvas.delete("all")
+        self.dual_canvas.create_rectangle(2, 2, 14, 12, outline=dual_fg, width=1.5)
+        self.dual_canvas.create_line(8, 2, 8, 12, fill=dual_fg, width=1.5)
+
+        self.uni_seg.configure(fg_color=uni_bg)
+        self.uni_canvas.configure(bg=uni_bg)
+        self.uni_canvas.delete("all")
+        for y in (3, 7, 11):
+            self.uni_canvas.create_line(2, y, 14, y, fill=uni_fg, width=2, capstyle="round")
+
     def _on_layout_changed(self, choice):
         if choice == "Unified Timeline":
+            self.layout_mode = "unified"
             self.dual_container.pack_forget()
             self.unified_frame.pack(fill="both", expand=True)
             self._rebuild_unified_textbox()
         else:
+            self.layout_mode = "dual"
             self.unified_frame.pack_forget()
             self.dual_container.pack(fill="both", expand=True)
+        self._update_view_toggle()
 
     def _toggle_topmost(self):
         self.attributes("-topmost", self.topmost_var.get())

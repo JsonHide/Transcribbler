@@ -24,6 +24,13 @@ BTN_BUSY_FG = "#f59f00"         # Rescan button while scanning (amber)
 TOOLTIP_BG = "#212529"
 TOOLTIP_FG = "#f1f3f5"
 
+# View segmented icon toggle colors
+VIEW_PILL_BG = "#1f2126"
+VIEW_PILL_BORDER = "#373a40"
+VIEW_ACTIVE_BG = "#2f333d"
+VIEW_ACTIVE_FG = "#38d9a9"
+VIEW_INACTIVE_FG = "#909296"
+
 # Text colors
 TEXT_PRIMARY = "#c1c2c5"
 TEXT_SECONDARY = "#909296"
