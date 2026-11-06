@@ -16,6 +16,7 @@ from transcribbler.core.events import TranscriptEntry
 from transcribbler.core.session import TranscriptionSession
 from transcribbler.ui.components import Tooltip, format_entry_block
 from transcribbler.ui.styles import (
+    BG_SECONDARY,
     BTN_ACCENT_FG,
     BTN_ACCENT_HOVER,
     BTN_BUSY_FG,
@@ -25,14 +26,31 @@ from transcribbler.ui.styles import (
     BTN_START_HOVER,
     BTN_STOP_FG,
     BTN_STOP_HOVER,
+    CLUSTER_BG,
+    CLUSTER_BORDER,
+    CLUSTER_HOVER_BG,
     FONT_FAMILY,
     FONT_SIZE_DEFAULT,
     FONT_SIZE_MAX,
     FONT_SIZE_MIN,
+    ICON_DANGER_HOVER_FG,
+    ICON_FG,
+    ICON_HOVER_FG,
     LED_ACTIVE,
     LED_IDLE,
+    MIC_BTN_DISABLE_FG,
+    MIC_BTN_DISABLE_HOVER,
+    MIC_BTN_ENABLE_FG,
+    MIC_BTN_ENABLE_HOVER,
     MIC_HEADER_COLOR,
+    MONO_FONT_FAMILY,
+    SPK_BTN_DISABLE_FG,
+    SPK_BTN_DISABLE_HOVER,
+    SPK_BTN_ENABLE_FG,
+    SPK_BTN_ENABLE_HOVER,
     SPK_HEADER_COLOR,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
     VIEW_ACTIVE_BG,
     VIEW_ACTIVE_FG,
     VIEW_INACTIVE_FG,
@@ -60,7 +78,7 @@ class TranscribblerApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("Transcribbler – Real-Time ASR & Translation")
-        self.geometry("1100x720")
+        self.geometry("1180x720")
         self.minsize(800, 500)
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
@@ -98,41 +116,50 @@ class TranscribblerApp(ctk.CTk):
         self.after(100, self._process_events)
 
     def _build_top_bar(self):
-        self.top_frame = ctk.CTkFrame(self, corner_radius=8)
+        self.top_frame = ctk.CTkFrame(self, corner_radius=8, fg_color=BG_SECONDARY)
         self.top_frame.pack(fill="x", padx=12, pady=(12, 6))
 
         row1 = ctk.CTkFrame(self.top_frame, fg_color="transparent")
-        row1.pack(fill="x", padx=6, pady=(6, 6))
+        row1.pack(fill="x", padx=8, pady=(6, 6))
 
+        # --- Left Cluster: Session CTA + Audio/View Group + Speech Pipeline Group ---
         self.start_btn = ctk.CTkButton(
-            row1, text="▶ Start", width=95,
+            row1, text="▶ Start", width=86, height=32,
             fg_color=BTN_START_FG, hover_color=BTN_START_HOVER,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
             command=self.toggle_session,
         )
-        self.start_btn.pack(side="left", padx=(0, 6))
+        self.start_btn.pack(side="left", padx=(0, 8))
 
-        ctk.CTkLabel(row1, text="Filter:").pack(side="left", padx=(6, 3))
-        self.filter_combo = ctk.CTkComboBox(
-            row1,
-            values=["All Sources", "Microphone Only", "Speaker Only"],
-            width=115, command=self._on_filter_changed, state="readonly",
-        )
-        self.filter_combo.set("All Sources")
-        self.filter_combo.pack(side="left", padx=3)
-
-        sep = ctk.CTkFrame(row1, width=1, height=22, fg_color=VIEW_PILL_BORDER)
-        sep.pack(side="left", padx=(6, 6))
-
-        self.view_pill = ctk.CTkFrame(
-            row1, fg_color=VIEW_PILL_BG, border_color=VIEW_PILL_BORDER,
+        # Audio & View Cluster (Filter + View Mode Switcher)
+        self.audio_view_cluster = ctk.CTkFrame(
+            row1, fg_color=CLUSTER_BG, border_color=CLUSTER_BORDER,
             border_width=1, corner_radius=6,
         )
-        self.view_pill.pack(side="left", padx=2)
+        self.audio_view_cluster.pack(side="left", padx=(0, 8))
+
+        self.filter_combo = ctk.CTkComboBox(
+            self.audio_view_cluster,
+            values=["All Sources", "Mic Only", "Speaker Only"],
+            width=110, height=26,
+            fg_color=CLUSTER_BG, button_color=CLUSTER_BG,
+            button_hover_color=CLUSTER_HOVER_BG, border_width=0,
+            command=self._on_filter_changed, state="readonly",
+        )
+        self.filter_combo.set("All Sources")
+        self.filter_combo.pack(side="left", padx=(4, 2), pady=3)
+        self.filter_tooltip = Tooltip(self.filter_combo, "Filter audio input channel")
+
+        av_sep = ctk.CTkFrame(self.audio_view_cluster, width=1, height=20, fg_color=CLUSTER_BORDER)
+        av_sep.pack(side="left", padx=(2, 2), pady=4)
+
+        self.view_pill = ctk.CTkFrame(self.audio_view_cluster, fg_color="transparent")
+        self.view_pill.pack(side="left", padx=(1, 3), pady=3)
 
         self.dual_seg = ctk.CTkFrame(
-            self.view_pill, width=32, height=24, corner_radius=5, fg_color=VIEW_ACTIVE_BG,
+            self.view_pill, width=28, height=24, corner_radius=4, fg_color=VIEW_ACTIVE_BG,
         )
-        self.dual_seg.pack(side="left", padx=(3, 1), pady=3)
+        self.dual_seg.pack(side="left", padx=(1, 1))
         self.dual_seg.pack_propagate(False)
         self.dual_canvas = tk.Canvas(
             self.dual_seg, width=16, height=14,
@@ -141,9 +168,9 @@ class TranscribblerApp(ctk.CTk):
         self.dual_canvas.place(relx=0.5, rely=0.5, anchor="center")
 
         self.uni_seg = ctk.CTkFrame(
-            self.view_pill, width=32, height=24, corner_radius=5, fg_color=VIEW_PILL_BG,
+            self.view_pill, width=28, height=24, corner_radius=4, fg_color=VIEW_PILL_BG,
         )
-        self.uni_seg.pack(side="left", padx=(1, 3), pady=3)
+        self.uni_seg.pack(side="left", padx=(1, 1))
         self.uni_seg.pack_propagate(False)
         self.uni_canvas = tk.Canvas(
             self.uni_seg, width=16, height=14,
@@ -156,85 +183,201 @@ class TranscribblerApp(ctk.CTk):
         for w in (self.uni_seg, self.uni_canvas):
             w.bind("<Button-1>", lambda _e: self._on_layout_changed("Unified Timeline"))
 
-        self.dual_tooltip = Tooltip(self.dual_canvas, "Dual Column")
-        self.uni_tooltip = Tooltip(self.uni_canvas, "Unified Timeline")
+        self.dual_tooltip = Tooltip(self.dual_canvas, "Split dual-column view (Mic & Speaker)")
+        self.uni_tooltip = Tooltip(self.uni_canvas, "Single continuous stream layout")
         self._update_view_toggle()
 
-        ctk.CTkLabel(row1, text="Lang:").pack(side="left", padx=(6, 3))
+        # Speech Pipeline Cluster (Lang | Model | Translate)
+        self.pipeline_cluster = ctk.CTkFrame(
+            row1, fg_color=CLUSTER_BG, border_color=CLUSTER_BORDER,
+            border_width=1, corner_radius=6,
+        )
+        self.pipeline_cluster.pack(side="left", padx=(0, 6))
+
+        mono_lbl_font = ctk.CTkFont(family=MONO_FONT_FAMILY, size=11)
+
+        ctk.CTkLabel(
+            self.pipeline_cluster, text="Lang:", font=mono_lbl_font, text_color=TEXT_SECONDARY,
+        ).pack(side="left", padx=(8, 2), pady=3)
         self.lang_combo = ctk.CTkComboBox(
-            row1,
+            self.pipeline_cluster,
             values=["auto", "en"],
-            width=75, command=self._on_lang_changed, state="readonly",
+            width=66, height=26,
+            fg_color=CLUSTER_BG, button_color=CLUSTER_BG,
+            button_hover_color=CLUSTER_HOVER_BG, border_width=0,
+            command=self._on_lang_changed, state="readonly",
         )
         self.lang_combo.set("auto")
-        self.lang_combo.pack(side="left", padx=3)
+        self.lang_combo.pack(side="left", padx=(0, 4), pady=3)
         self.lang_tooltip = Tooltip(self.lang_combo, LANG_TOOLTIP)
 
-        self.en_engine_label = ctk.CTkLabel(row1, text="EN Model:")
-        self.en_engine_label.pack(side="left", padx=(6, 3))
+        pipe_sep1 = ctk.CTkFrame(self.pipeline_cluster, width=1, height=20, fg_color=CLUSTER_BORDER)
+        pipe_sep1.pack(side="left", padx=2, pady=4)
+
+        self.en_engine_label = ctk.CTkLabel(
+            self.pipeline_cluster, text="Model:", font=mono_lbl_font, text_color=TEXT_SECONDARY,
+        )
+        self.en_engine_label.pack(side="left", padx=(6, 2), pady=3)
         self.en_engine_combo = ctk.CTkComboBox(
-            row1,
+            self.pipeline_cluster,
             values=["auto", "parakeet", "moonshine"],
-            width=105, state="disabled",
+            width=96, height=26,
+            fg_color=CLUSTER_BG, button_color=CLUSTER_BG,
+            button_hover_color=CLUSTER_HOVER_BG, border_width=0,
+            state="disabled",
         )
         self.en_engine_combo.set("auto")
-        self.en_engine_combo.pack(side="left", padx=3)
+        self.en_engine_combo.pack(side="left", padx=(0, 4), pady=3)
         self.en_engine_tooltip = Tooltip(self.en_engine_combo, EN_ENGINE_TOOLTIP)
 
-        ctk.CTkLabel(row1, text="Translate:").pack(side="left", padx=(6, 3))
+        pipe_sep2 = ctk.CTkFrame(self.pipeline_cluster, width=1, height=20, fg_color=CLUSTER_BORDER)
+        pipe_sep2.pack(side="left", padx=2, pady=4)
+
+        ctk.CTkLabel(
+            self.pipeline_cluster, text="Translate:", font=mono_lbl_font, text_color=TEXT_SECONDARY,
+        ).pack(side="left", padx=(6, 2), pady=3)
         self.trans_combo = ctk.CTkComboBox(
-            row1,
+            self.pipeline_cluster,
             values=["off", "offline", "azure", "google"],
-            width=90, state="readonly",
+            width=80, height=26,
+            fg_color=CLUSTER_BG, button_color=CLUSTER_BG,
+            button_hover_color=CLUSTER_HOVER_BG, border_width=0,
+            state="readonly",
         )
         self.trans_combo.set("off")
-        self.trans_combo.pack(side="left", padx=3)
+        self.trans_combo.pack(side="left", padx=(0, 6), pady=3)
+        self.trans_tooltip = Tooltip(self.trans_combo, "Real-Time Translation Target")
 
-        self.topmost_var = ctk.BooleanVar(value=False)
-        self.topmost_chk = ctk.CTkCheckBox(
-            row1, text="Always on Top",
-            variable=self.topmost_var, command=self._toggle_topmost,
-            width=120,
+        # --- Right Cluster: Compact Font Scaler + Document Utilities + Pin Toggle ---
+        self.utility_cluster = ctk.CTkFrame(
+            row1, fg_color=CLUSTER_BG, border_color=CLUSTER_BORDER,
+            border_width=1, corner_radius=6,
         )
-        self.topmost_chk.pack(side="right", padx=(6, 0))
-
-        self.clear_btn = ctk.CTkButton(
-            row1, text="Clear", width=60,
-            fg_color=BTN_NEUTRAL_FG, hover_color=BTN_NEUTRAL_HOVER,
-            command=self._clear_transcripts,
-        )
-        self.clear_btn.pack(side="right", padx=3)
-
-        self.save_btn = ctk.CTkButton(
-            row1, text="💾 Save", width=68,
-            fg_color=BTN_NEUTRAL_FG, hover_color=BTN_NEUTRAL_HOVER,
-            command=self._save_transcripts,
-        )
-        self.save_btn.pack(side="right", padx=3)
-
-        self.copy_btn = ctk.CTkButton(
-            row1, text="📋 Copy", width=68,
-            fg_color=BTN_NEUTRAL_FG, hover_color=BTN_NEUTRAL_HOVER,
-            command=self._copy_transcripts,
-        )
-        self.copy_btn.pack(side="right", padx=3)
+        self.utility_cluster.pack(side="right", padx=(4, 0))
 
         self.font_minus_btn = ctk.CTkButton(
-            row1, text="A-", width=34,
-            fg_color=BTN_NEUTRAL_FG, hover_color=BTN_NEUTRAL_HOVER,
+            self.utility_cluster, text="A-", width=28, height=24,
+            fg_color="transparent", hover_color=CLUSTER_HOVER_BG,
+            text_color=ICON_FG, font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
             command=self._font_decrease,
         )
-        self.font_minus_btn.pack(side="right", padx=2)
+        self.font_minus_btn.pack(side="left", padx=(4, 1), pady=3)
+        self.font_minus_tooltip = Tooltip(self.font_minus_btn, "Decrease Font Size")
 
-        self.font_label = ctk.CTkLabel(row1, text=f"🔤 {self.font_size}pt")
-        self.font_label.pack(side="right", padx=2)
+        self.font_label = ctk.CTkLabel(
+            self.utility_cluster, text=f"{self.font_size}pt",
+            font=mono_lbl_font, text_color=TEXT_SECONDARY, width=30,
+        )
+        self.font_label.pack(side="left", padx=1, pady=3)
 
         self.font_plus_btn = ctk.CTkButton(
-            row1, text="A+", width=34,
-            fg_color=BTN_NEUTRAL_FG, hover_color=BTN_NEUTRAL_HOVER,
+            self.utility_cluster, text="A+", width=28, height=24,
+            fg_color="transparent", hover_color=CLUSTER_HOVER_BG,
+            text_color=ICON_FG, font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
             command=self._font_increase,
         )
-        self.font_plus_btn.pack(side="right", padx=2)
+        self.font_plus_btn.pack(side="left", padx=(1, 3), pady=3)
+        self.font_plus_tooltip = Tooltip(self.font_plus_btn, "Increase Font Size")
+
+        util_sep1 = ctk.CTkFrame(self.utility_cluster, width=1, height=18, fg_color=CLUSTER_BORDER)
+        util_sep1.pack(side="left", padx=2, pady=4)
+
+        self.copy_btn, self.copy_canvas = self._create_icon_button(
+            self.utility_cluster, self._draw_copy_icon, self._copy_transcripts,
+            tooltip="Copy Transcript", hover_fg=ICON_HOVER_FG,
+        )
+        self.copy_btn.pack(side="left", padx=1, pady=3)
+
+        self.save_btn, self.save_canvas = self._create_icon_button(
+            self.utility_cluster, self._draw_save_icon, self._save_transcripts,
+            tooltip="Save Transcript", hover_fg=ICON_HOVER_FG,
+        )
+        self.save_btn.pack(side="left", padx=1, pady=3)
+
+        self.clear_btn, self.clear_canvas = self._create_icon_button(
+            self.utility_cluster, self._draw_trash_icon, self._clear_transcripts,
+            tooltip="Clear Session", hover_fg=ICON_DANGER_HOVER_FG,
+        )
+        self.clear_btn.pack(side="left", padx=1, pady=3)
+
+        util_sep2 = ctk.CTkFrame(self.utility_cluster, width=1, height=18, fg_color=CLUSTER_BORDER)
+        util_sep2.pack(side="left", padx=2, pady=4)
+
+        self.topmost_var = ctk.BooleanVar(value=False)
+        self.pin_btn = ctk.CTkFrame(
+            self.utility_cluster, width=28, height=24, corner_radius=4, fg_color=CLUSTER_BG,
+        )
+        self.pin_btn.pack(side="left", padx=(1, 4), pady=3)
+        self.pin_btn.pack_propagate(False)
+        self.pin_canvas = tk.Canvas(
+            self.pin_btn, width=16, height=16,
+            bg=CLUSTER_BG, highlightthickness=0, bd=0, cursor="hand2",
+        )
+        self.pin_canvas.place(relx=0.5, rely=0.5, anchor="center")
+        for w in (self.pin_btn, self.pin_canvas):
+            w.bind("<Button-1>", lambda _e: self._toggle_pin())
+            w.bind("<Enter>", lambda _e: self._set_pin_hover(True))
+            w.bind("<Leave>", lambda _e: self._set_pin_hover(False))
+        self.pin_tooltip = Tooltip(self.pin_canvas, "Always on Top")
+        self._pin_hovered = False
+        self._update_pin_button()
+
+    def _create_icon_button(
+        self,
+        parent: ctk.CTkFrame,
+        draw_fn,
+        command,
+        tooltip: str,
+        hover_fg: str = ICON_HOVER_FG,
+    ) -> tuple[ctk.CTkFrame, tk.Canvas]:
+        """Build a 28x24 icon button using a crisp vector canvas inside a rounded CTkFrame."""
+        btn = ctk.CTkFrame(parent, width=28, height=24, corner_radius=4, fg_color=CLUSTER_BG)
+        btn.pack_propagate(False)
+        canvas = tk.Canvas(
+            btn, width=16, height=16, bg=CLUSTER_BG, highlightthickness=0, bd=0, cursor="hand2",
+        )
+        canvas.place(relx=0.5, rely=0.5, anchor="center")
+        draw_fn(canvas, ICON_FG)
+
+        def _on_enter(_e):
+            btn.configure(fg_color=CLUSTER_HOVER_BG)
+            canvas.configure(bg=CLUSTER_HOVER_BG)
+            draw_fn(canvas, hover_fg)
+
+        def _on_leave(_e):
+            btn.configure(fg_color=CLUSTER_BG)
+            canvas.configure(bg=CLUSTER_BG)
+            draw_fn(canvas, ICON_FG)
+
+        for w in (btn, canvas):
+            w.bind("<Enter>", _on_enter)
+            w.bind("<Leave>", _on_leave)
+            w.bind("<Button-1>", lambda _e: command())
+
+        Tooltip(canvas, tooltip)
+        return btn, canvas
+
+    @staticmethod
+    def _draw_copy_icon(canvas: tk.Canvas, color: str) -> None:
+        canvas.delete("all")
+        canvas.create_line(4, 11, 2, 11, 2, 2, 11, 2, 11, 4, fill=color, width=1.4)
+        canvas.create_rectangle(5, 5, 14, 14, outline=color, width=1.4)
+
+    @staticmethod
+    def _draw_save_icon(canvas: tk.Canvas, color: str) -> None:
+        canvas.delete("all")
+        canvas.create_polygon(2, 2, 11, 2, 14, 5, 14, 14, 2, 14, outline=color, fill="", width=1.4)
+        canvas.create_rectangle(5, 2, 10, 6, outline=color, width=1.2)
+        canvas.create_rectangle(4, 9, 12, 14, outline=color, width=1.2)
+
+    @staticmethod
+    def _draw_trash_icon(canvas: tk.Canvas, color: str) -> None:
+        canvas.delete("all")
+        canvas.create_line(2, 4, 14, 4, fill=color, width=1.4)
+        canvas.create_line(6, 2, 10, 2, fill=color, width=1.4)
+        canvas.create_rectangle(4, 4, 12, 14, outline=color, width=1.4)
+        canvas.create_line(6.5, 7, 6.5, 11.5, fill=color, width=1.2)
+        canvas.create_line(9.5, 7, 9.5, 11.5, fill=color, width=1.2)
 
     def _build_content_area(self):
         self.body_frame = ctk.CTkFrame(self, corner_radius=8)
@@ -254,8 +397,10 @@ class TranscribblerApp(ctk.CTk):
         )
         self.mic_title.pack(side="left", padx=10, pady=4)
         self.mic_toggle_btn = ctk.CTkButton(
-            self.mic_header, text="Disable", width=65, height=24,
-            fg_color="#343a40", hover_color="#212529", font=ctk.CTkFont(size=12),
+            self.mic_header, text="Disable", width=68, height=24,
+            fg_color=MIC_BTN_DISABLE_FG, hover_color=MIC_BTN_DISABLE_HOVER,
+            border_color="#4dabf7", border_width=1,
+            font=ctk.CTkFont(size=11, weight="bold"),
             command=self._toggle_mic_channel,
         )
         self.mic_toggle_btn.pack(side="left", padx=6)
@@ -278,8 +423,10 @@ class TranscribblerApp(ctk.CTk):
         )
         self.spk_title.pack(side="left", padx=10, pady=4)
         self.spk_toggle_btn = ctk.CTkButton(
-            self.spk_header, text="Disable", width=65, height=24,
-            fg_color="#343a40", hover_color="#212529", font=ctk.CTkFont(size=12),
+            self.spk_header, text="Disable", width=68, height=24,
+            fg_color=SPK_BTN_DISABLE_FG, hover_color=SPK_BTN_DISABLE_HOVER,
+            border_color="#69db7c", border_width=1,
+            font=ctk.CTkFont(size=11, weight="bold"),
             command=self._toggle_spk_channel,
         )
         self.spk_toggle_btn.pack(side="left", padx=6)
@@ -298,37 +445,74 @@ class TranscribblerApp(ctk.CTk):
         self.unified_textbox.pack(fill="both", expand=True, padx=6, pady=6)
 
     def _build_status_bar(self):
-        self.status_bar = ctk.CTkFrame(self, height=36, corner_radius=6)
+        self.status_bar = ctk.CTkFrame(self, height=46, corner_radius=6, fg_color=BG_SECONDARY)
         self.status_bar.pack(fill="x", padx=12, pady=(0, 8))
+        self.status_bar.pack_propagate(False)
 
-        self.status_label = ctk.CTkLabel(
-            self.status_bar, text="Ready. Click Start to begin listening.",
-        )
-        self.status_label.pack(side="left", padx=10)
+        # Right side: Always-visible audio device selectors & Rescan button
+        self.device_bar_frame = ctk.CTkFrame(self.status_bar, fg_color="transparent")
+        self.device_bar_frame.pack(side="right", fill="y", padx=(6, 6), pady=4)
 
         self.refresh_btn = ctk.CTkButton(
-            self.status_bar, text="⟳ Rescan", width=88,
+            self.device_bar_frame, text="⟳ Rescan", width=82, height=26,
             fg_color=BTN_ACCENT_FG, hover_color=BTN_ACCENT_HOVER,
             text_color="#ffffff", text_color_disabled="#ffffff",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
             command=lambda: self._refresh_devices_async(reason="manual"),
         )
-        self.refresh_btn.pack(side="right", padx=(2, 6), pady=2)
+        self.refresh_btn.pack(side="right", padx=(4, 0), pady=5)
         self.refresh_tooltip = Tooltip(self.refresh_btn, RESCAN_TOOLTIP)
 
         self.spk_combo = ctk.CTkComboBox(
-            self.status_bar, values=["Default Loopback"],
-            width=215, state="readonly", command=self._on_device_changed,
+            self.device_bar_frame, values=["Default Loopback"],
+            width=195, height=26,
+            fg_color=CLUSTER_BG, border_color=CLUSTER_BORDER, border_width=1,
+            button_color=CLUSTER_BG, button_hover_color=CLUSTER_HOVER_BG,
+            state="readonly", command=self._on_device_changed,
         )
-        self.spk_combo.pack(side="right", padx=6, pady=2)
-        ctk.CTkLabel(self.status_bar, text="Speaker:").pack(side="right", padx=(6, 2))
+        self.spk_combo.pack(side="right", padx=4, pady=5)
+        ctk.CTkLabel(
+            self.device_bar_frame, text="Speaker:", text_color=TEXT_SECONDARY,
+        ).pack(side="right", padx=(6, 2))
 
         self.mic_combo = ctk.CTkComboBox(
-            self.status_bar, values=["Default Microphone"],
-            width=215, state="readonly", command=self._on_device_changed,
+            self.device_bar_frame, values=["Default Microphone"],
+            width=195, height=26,
+            fg_color=CLUSTER_BG, border_color=CLUSTER_BORDER, border_width=1,
+            button_color=CLUSTER_BG, button_hover_color=CLUSTER_HOVER_BG,
+            state="readonly", command=self._on_device_changed,
         )
-        self.mic_combo.pack(side="right", padx=6, pady=2)
-        ctk.CTkLabel(self.status_bar, text="Mic:").pack(side="right", padx=(10, 2))
+        self.mic_combo.pack(side="right", padx=4, pady=5)
+        ctk.CTkLabel(
+            self.device_bar_frame, text="Mic:", text_color=TEXT_SECONDARY,
+        ).pack(side="right", padx=(4, 2))
+
+        # Left side: Two-line status readout (pack_propagate(False) keeps right controls pinned)
+        self.status_text_frame = ctk.CTkFrame(self.status_bar, fg_color="transparent")
+        self.status_text_frame.pack(side="left", fill="both", expand=True, padx=(10, 4), pady=3)
+        self.status_text_frame.pack_propagate(False)
+
+        status_font = ctk.CTkFont(family=MONO_FONT_FAMILY, size=11)
+        self.status_label = ctk.CTkLabel(
+            self.status_text_frame, text="Ready. Click Start to begin listening.",
+            font=status_font, text_color=TEXT_PRIMARY, anchor="w", height=18,
+        )
+        self.status_label.pack(side="top", fill="x", anchor="w", pady=(1, 0))
+
+        self.output_label = ctk.CTkLabel(
+            self.status_text_frame, text="Output: —",
+            font=status_font, text_color=TEXT_SECONDARY, anchor="w", height=18,
+        )
+        self.output_label.pack(side="top", fill="x", anchor="w", pady=(0, 1))
+        self.output_tooltip = Tooltip(self.output_label, "")
+
+    def _set_status(self, line1: str, output_path: Optional[str] = None) -> None:
+        """Update the two-line status bar readout."""
+        self.status_label.configure(text=line1)
+        if output_path is not None:
+            out_text = f"Output: {output_path}" if output_path else "Output: —"
+            self.output_label.configure(text=out_text)
+            self.output_tooltip.text = str(output_path) if output_path else ""
 
     @staticmethod
     def _device_label(d: dict) -> str:
@@ -346,7 +530,7 @@ class TranscribblerApp(ctk.CTk):
             p.terminate()
             self._apply_device_lists(mics, speakers)
         except Exception as e:
-            self.status_label.configure(text=f"Device load warning: {e}")
+            self._set_status(f"Device load warning: {e}")
 
     def _apply_device_lists(self, mics: list, speakers: list) -> list[str]:
         """Repopulate both dropdowns, preserving the current selection by device name.
@@ -384,7 +568,7 @@ class TranscribblerApp(ctk.CTk):
             return
         self._refreshing = True
         self._set_rescan_busy(True)
-        self.status_label.configure(text="Scanning audio devices...")
+        self._set_status("Scanning audio devices...")
         session = self.session
         mic_name = self._label_name(self.mic_combo.get())
         spk_name = self._label_name(self.spk_combo.get())
@@ -425,7 +609,7 @@ class TranscribblerApp(ctk.CTk):
         self._refreshing = False
         self._set_rescan_busy(False)
         if status == "error":
-            self.status_label.configure(text=f"Device refresh failed: {mics}")
+            self._set_status(f"Device refresh failed: {mics}")
             return
 
         self.refresh_tooltip.text = (
@@ -444,8 +628,12 @@ class TranscribblerApp(ctk.CTk):
         if notes:
             msg += " | " + "; ".join(notes)
         if was_running and self.session is not None:
-            msg += f" | Transcribing → {self.session.out_path}"
-        self.status_label.configure(text=msg)
+            self._set_status(
+                f"Transcribing... [ASR: {self.session.engine_name} | Translate: {self.session.tname}] — {msg}",
+                output_path=str(self.session.out_path),
+            )
+        else:
+            self._set_status(msg)
 
     def _on_device_changed(self, _choice=None):
         """Live-switch the capture device while transcribing (no-op when idle)."""
@@ -494,17 +682,15 @@ class TranscribblerApp(ctk.CTk):
             self.start_btn.configure(
                 text="⏹ Stop", fg_color=BTN_STOP_FG, hover_color=BTN_STOP_HOVER, state="normal",
             )
-            self.status_label.configure(
-                text=(
-                    f"Transcribing... [ASR: {self.session.engine_name} | "
-                    f"Translate: {self.session.tname}] | Output: {self.session.out_path}"
-                ),
+            self._set_status(
+                f"Transcribing... [ASR: {self.session.engine_name} | Translate: {self.session.tname}]",
+                output_path=str(self.session.out_path),
             )
             self.lang_combo.configure(state="disabled")
             self.en_engine_combo.configure(state="disabled")
             self.trans_combo.configure(state="disabled")
         except Exception as e:
-            self.status_label.configure(text=f"Startup Error: {e}")
+            self._set_status(f"Startup Error: {e}")
             self.lang_combo.configure(state="readonly")
             self._on_lang_changed(self.lang_combo.get())
             self.trans_combo.configure(state="readonly")
@@ -533,7 +719,7 @@ class TranscribblerApp(ctk.CTk):
         self.start_btn.configure(
             text="▶ Start", fg_color=BTN_START_FG, hover_color=BTN_START_HOVER, state="normal",
         )
-        self.status_label.configure(text="Stopped.")
+        self._set_status("Stopped.")
         self.mic_led.configure(text=f"{LED_IDLE} Idle")
         self.spk_led.configure(text=f"{LED_IDLE} Idle")
         self.mic_combo.configure(state="readonly")
@@ -624,6 +810,14 @@ class TranscribblerApp(ctk.CTk):
                 e.is_final = True
                 self._render_entry(e)
 
+    @staticmethod
+    def _matches_filter(mode: str, source: str) -> bool:
+        if mode in ("Mic Only", "Microphone Only"):
+            return source == "ME"
+        if mode == "Speaker Only":
+            return source == "OTHERS"
+        return True
+
     def _render_entry(self, entry: TranscriptEntry):
         col_block = format_entry_block(entry, include_source=False)
         uni_block = format_entry_block(entry, include_source=True)
@@ -634,14 +828,14 @@ class TranscribblerApp(ctk.CTk):
             self._upsert_textbox_block(self.spk_textbox, entry.id, col_block, entry.is_final)
 
         mode = self.filter_combo.get()
-        if mode == "All Sources" or (mode == "Microphone Only" and entry.source == "ME") or (mode == "Speaker Only" and entry.source == "OTHERS"):
+        if self._matches_filter(mode, entry.source):
             self._upsert_textbox_block(self.unified_textbox, entry.id, uni_block, entry.is_final)
 
     def _rebuild_unified_textbox(self):
         self.unified_textbox.delete("1.0", "end")
         mode = self.filter_combo.get()
         for e in self.entries:
-            if mode == "All Sources" or (mode == "Microphone Only" and e.source == "ME") or (mode == "Speaker Only" and e.source == "OTHERS"):
+            if self._matches_filter(mode, e.source):
                 self._upsert_textbox_block(
                     self.unified_textbox,
                     e.id,
@@ -654,7 +848,7 @@ class TranscribblerApp(ctk.CTk):
         self.mic_frame.pack_forget()
         self.spk_frame.pack_forget()
 
-        if choice == "Microphone Only":
+        if choice in ("Mic Only", "Microphone Only"):
             self.mic_frame.pack(side="left", fill="both", expand=True)
         elif choice == "Speaker Only":
             self.spk_frame.pack(side="right", fill="both", expand=True)
@@ -703,8 +897,31 @@ class TranscribblerApp(ctk.CTk):
             self.dual_container.pack(fill="both", expand=True)
         self._update_view_toggle()
 
+    def _toggle_pin(self):
+        self.topmost_var.set(not self.topmost_var.get())
+        self._toggle_topmost()
+
+    def _set_pin_hover(self, hovered: bool):
+        self._pin_hovered = hovered
+        self._update_pin_button()
+
+    def _update_pin_button(self):
+        is_pinned = self.topmost_var.get()
+        bg = CLUSTER_HOVER_BG if (self._pin_hovered or is_pinned) else CLUSTER_BG
+        fg = VIEW_ACTIVE_FG if is_pinned else (ICON_HOVER_FG if self._pin_hovered else VIEW_INACTIVE_FG)
+        self.pin_btn.configure(fg_color=bg)
+        self.pin_canvas.configure(bg=bg)
+        self.pin_canvas.delete("all")
+        # Draw thumbtack / pin icon
+        self.pin_canvas.create_line(5, 2, 11, 2, fill=fg, width=1.5)
+        self.pin_canvas.create_line(6, 2, 6, 7, 4, 9, 12, 9, 10, 7, 10, 2, fill=fg, width=1.4)
+        self.pin_canvas.create_line(8, 9, 8, 14, fill=fg, width=1.5)
+        if is_pinned:
+            self.pin_canvas.create_oval(12, 1, 15, 4, fill=VIEW_ACTIVE_FG, outline="")
+
     def _toggle_topmost(self):
         self.attributes("-topmost", self.topmost_var.get())
+        self._update_pin_button()
 
     def _clear_transcripts(self):
         self.entries.clear()
@@ -717,12 +934,16 @@ class TranscribblerApp(ctk.CTk):
         """Toggle audio capture for Microphone (ME)."""
         self.mic_enabled = not self.mic_enabled
         if self.mic_enabled:
-            self.mic_toggle_btn.configure(text="Disable", fg_color="#343a40", hover_color="#212529")
+            self.mic_toggle_btn.configure(
+                text="Disable", fg_color=MIC_BTN_DISABLE_FG, hover_color=MIC_BTN_DISABLE_HOVER,
+            )
             self.mic_header.configure(fg_color=MIC_HEADER_COLOR)
             self.mic_led.configure(text=f"{LED_IDLE} Listening" if self.is_running else f"{LED_IDLE} Idle")
         else:
-            self.mic_toggle_btn.configure(text="Enable", fg_color="#2b8a3e", hover_color="#237032")
-            self.mic_header.configure(fg_color="#343a40")
+            self.mic_toggle_btn.configure(
+                text="Enable", fg_color=MIC_BTN_ENABLE_FG, hover_color=MIC_BTN_ENABLE_HOVER,
+            )
+            self.mic_header.configure(fg_color=MIC_HEADER_COLOR)
             self.mic_led.configure(text=f"{LED_IDLE} Disabled")
             self._finalize_pending_interims("ME")
 
@@ -733,12 +954,16 @@ class TranscribblerApp(ctk.CTk):
         """Toggle audio capture for Speaker / System (OTHERS)."""
         self.spk_enabled = not self.spk_enabled
         if self.spk_enabled:
-            self.spk_toggle_btn.configure(text="Disable", fg_color="#343a40", hover_color="#212529")
+            self.spk_toggle_btn.configure(
+                text="Disable", fg_color=SPK_BTN_DISABLE_FG, hover_color=SPK_BTN_DISABLE_HOVER,
+            )
             self.spk_header.configure(fg_color=SPK_HEADER_COLOR)
             self.spk_led.configure(text=f"{LED_IDLE} Listening" if self.is_running else f"{LED_IDLE} Idle")
         else:
-            self.spk_toggle_btn.configure(text="Enable", fg_color="#2b8a3e", hover_color="#237032")
-            self.spk_header.configure(fg_color="#343a40")
+            self.spk_toggle_btn.configure(
+                text="Enable", fg_color=SPK_BTN_ENABLE_FG, hover_color=SPK_BTN_ENABLE_HOVER,
+            )
+            self.spk_header.configure(fg_color=SPK_HEADER_COLOR)
             self.spk_led.configure(text=f"{LED_IDLE} Disabled")
             self._finalize_pending_interims("OTHERS")
 
@@ -785,7 +1010,7 @@ class TranscribblerApp(ctk.CTk):
         self.mic_textbox.configure(font=font)
         self.spk_textbox.configure(font=font)
         self.unified_textbox.configure(font=font)
-        self.font_label.configure(text=f"🔤 {self.font_size}pt")
+        self.font_label.configure(text=f"{self.font_size}pt")
 
     def destroy(self):
         self._watcher_stop.set()
