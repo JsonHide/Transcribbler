@@ -32,6 +32,7 @@ class AudioResampler:
         self.out_rate = out_rate
         self.mode = "passthrough"
         self._stream = None
+        self._rem = np.zeros(0, dtype=np.int16)
 
         if in_rate == out_rate:
             self.mode = "passthrough"
@@ -51,7 +52,10 @@ class AudioResampler:
         if self.mode == "passthrough":
             return x
         if self.mode == "decimate":
+            if len(self._rem) > 0:
+                x = np.concatenate([self._rem, x])
             n = (len(x) // self.factor) * self.factor
+            self._rem = x[n:]
             if n == 0:
                 return np.zeros(0, dtype=np.int16)
             return x[:n].reshape(-1, self.factor).mean(axis=1).astype(np.int16)
@@ -112,21 +116,23 @@ class Segmenter:
         self.interim_interval_frames = max(1, interim_interval_ms // FRAME_MS)
         self.min_interim_frames = max(1, min_interim_ms // FRAME_MS)
         pre_frames_count = max(1, pre_speech_ms // FRAME_MS)
-        self.pre_buffer: deque[np.ndarray] = deque(maxlen=pre_frames_count)
+        self.pre_buffer: deque[tuple[np.ndarray, float]] = deque(maxlen=pre_frames_count)
 
     @staticmethod
     def _calc_rms(frame: np.ndarray) -> float:
-        return float(np.sqrt(np.mean(frame.astype(np.float32) ** 2)) / 32768.0)
+        if len(frame) == 0:
+            return 0.0
+        f = frame.astype(np.float32)
+        return float(np.sqrt(np.dot(f, f) / len(f))) / 32768.0
 
     def feed(self, pcm16: np.ndarray) -> None:
-        if len(self.pending) > 0:
-            self.pending = np.concatenate([self.pending, pcm16])
-        else:
-            self.pending = pcm16
+        buf = np.concatenate([self.pending, pcm16]) if len(self.pending) > 0 else pcm16
+        n_samples = len(buf)
+        offset = 0
 
-        while len(self.pending) >= FRAME_SAMPLES:
-            frame = self.pending[:FRAME_SAMPLES]
-            self.pending = self.pending[FRAME_SAMPLES:]
+        while n_samples - offset >= FRAME_SAMPLES:
+            frame = buf[offset : offset + FRAME_SAMPLES]
+            offset += FRAME_SAMPLES
 
             is_speech = self.vad.is_speech(frame.tobytes(), TARGET_SR)
             rms = self._calc_rms(frame)
@@ -140,9 +146,9 @@ class Segmenter:
                     self.frames_since_interim = 0
                     self.speech_rms_ema = rms
                     # Prepend pre-speech frames to avoid clipping initial consonants
-                    for pf in self.pre_buffer:
+                    for pf, pf_rms in self.pre_buffer:
                         self.frames.append(pf)
-                        self.frame_rms.append(self._calc_rms(pf))
+                        self.frame_rms.append(pf_rms)
                 self.frames.append(frame)
                 self.frame_rms.append(rms)
                 self.silent = 0
@@ -161,7 +167,7 @@ class Segmenter:
                 ):
                     self._flush()
             else:
-                self.pre_buffer.append(frame)
+                self.pre_buffer.append((frame, rms))
                 if self.frames:
                     self.frames.append(frame)
                     self.frame_rms.append(rms)
@@ -186,6 +192,8 @@ class Segmenter:
                 ):
                     self._emit_interim()
                     self.frames_since_interim = 0
+
+        self.pending = buf[offset:]
 
     def _emit_final_utterance(self, u: Utterance) -> None:
         if self.on_final is not None:
@@ -289,6 +297,7 @@ class Segmenter:
         """Clear all buffered frames and reset state (used when muted/disabled)."""
         self.frames.clear()
         self.frame_rms.clear()
+        self.pre_buffer.clear()
         self.pending = np.zeros(0, dtype=np.int16)
         self.silent = 0
         self.soft_silent = 0
@@ -296,6 +305,27 @@ class Segmenter:
         self.started = None
         self.current_id = ""
         self.frames_since_interim = 0
+
+
+if sys.platform == "win32":
+    import ctypes
+    from ctypes import wintypes
+
+    class _WAVEINCAPSW(ctypes.Structure):
+        _fields_ = [
+            ("wMid", wintypes.WORD), ("wPid", wintypes.WORD),
+            ("vDriverVersion", wintypes.UINT), ("szPname", wintypes.WCHAR * 32),
+            ("dwFormats", wintypes.DWORD), ("wChannels", wintypes.WORD),
+            ("wReserved1", wintypes.WORD),
+        ]
+
+    class _WAVEOUTCAPSW(ctypes.Structure):
+        _fields_ = [
+            ("wMid", wintypes.WORD), ("wPid", wintypes.WORD),
+            ("vDriverVersion", wintypes.UINT), ("szPname", wintypes.WCHAR * 32),
+            ("dwFormats", wintypes.DWORD), ("wChannels", wintypes.WORD),
+            ("wReserved1", wintypes.WORD), ("dwSupport", wintypes.DWORD),
+        ]
 
 
 def get_device_topology_signature() -> tuple:
@@ -308,33 +338,14 @@ def get_device_topology_signature() -> tuple:
     if sys.platform != "win32":
         return ()
     try:
-        import ctypes
-        from ctypes import wintypes
-
-        class WAVEINCAPSW(ctypes.Structure):
-            _fields_ = [
-                ("wMid", wintypes.WORD), ("wPid", wintypes.WORD),
-                ("vDriverVersion", wintypes.UINT), ("szPname", wintypes.WCHAR * 32),
-                ("dwFormats", wintypes.DWORD), ("wChannels", wintypes.WORD),
-                ("wReserved1", wintypes.WORD),
-            ]
-
-        class WAVEOUTCAPSW(ctypes.Structure):
-            _fields_ = [
-                ("wMid", wintypes.WORD), ("wPid", wintypes.WORD),
-                ("vDriverVersion", wintypes.UINT), ("szPname", wintypes.WCHAR * 32),
-                ("dwFormats", wintypes.DWORD), ("wChannels", wintypes.WORD),
-                ("wReserved1", wintypes.WORD), ("dwSupport", wintypes.DWORD),
-            ]
-
         winmm = ctypes.windll.winmm
         ins, outs = [], []
         for i in range(winmm.waveInGetNumDevs()):
-            caps = WAVEINCAPSW()
+            caps = _WAVEINCAPSW()
             if winmm.waveInGetDevCapsW(i, ctypes.byref(caps), ctypes.sizeof(caps)) == 0:
                 ins.append(caps.szPname)
         for i in range(winmm.waveOutGetNumDevs()):
-            caps = WAVEOUTCAPSW()
+            caps = _WAVEOUTCAPSW()
             if winmm.waveOutGetDevCapsW(i, ctypes.byref(caps), ctypes.sizeof(caps)) == 0:
                 outs.append(caps.szPname)
         return (tuple(ins), tuple(outs))
@@ -407,7 +418,7 @@ class Capture:
         self.sr = int(dev["defaultSampleRate"])
         self.segmenter = segmenter
         self.resampler = AudioResampler(self.sr, TARGET_SR)
-        self.raw_queue: queue.Queue[Optional[bytes]] = queue.Queue()
+        self.raw_queue: queue.Queue[Optional[bytes]] = queue.Queue(maxsize=256)
         self.running = threading.Event()
         self.running.set()
         self.enabled = threading.Event()
@@ -435,7 +446,17 @@ class Capture:
 
     def _callback(self, in_data, frame_count, time_info, status):
         if self.running.is_set() and self.enabled.is_set():
-            self.raw_queue.put(in_data)
+            try:
+                self.raw_queue.put_nowait(in_data)
+            except queue.Full:
+                try:
+                    self.raw_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    self.raw_queue.put_nowait(in_data)
+                except queue.Full:
+                    pass
         return (None, pyaudio.paContinue)
 
     def _process(self) -> None:
@@ -459,7 +480,17 @@ class Capture:
 
     def close(self) -> None:
         self.running.clear()
-        self.raw_queue.put(None)
+        try:
+            self.raw_queue.put_nowait(None)
+        except queue.Full:
+            try:
+                self.raw_queue.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                self.raw_queue.put_nowait(None)
+            except queue.Full:
+                pass
         try:
             self.stream.stop_stream()
             self.stream.close()

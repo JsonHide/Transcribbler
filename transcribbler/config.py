@@ -2,6 +2,11 @@
 import os
 from pathlib import Path
 
+from transcribbler import __version__
+
+APP_VERSION = f"v{__version__}"
+APP_TITLE = f"Transcribbler – Real-Time ASR & Translation – {APP_VERSION}"
+
 TARGET_SR = 16000
 FRAME_MS = 30
 FRAME_SAMPLES = TARGET_SR * FRAME_MS // 1000  # 480 samples @ 16 kHz

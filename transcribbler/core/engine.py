@@ -1,6 +1,7 @@
 """Speech recognition (SenseVoice), romanization, and translation backends."""
 from __future__ import annotations
 
+import functools
 import html
 import os
 import re
@@ -8,8 +9,6 @@ from pathlib import Path
 from typing import Any, Optional, Tuple
 
 import numpy as np
-import pycantonese
-from pypinyin import Style, lazy_pinyin
 import sherpa_onnx
 
 from transcribbler.config import (
@@ -22,6 +21,8 @@ from transcribbler.config import (
 )
 
 TAG_RE = re.compile(r"<\|[^|]*\|>")
+CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+LANG_TAG_RE = re.compile(r"<\|(en|zh|yue|ja|ko)\|>")
 
 
 def _pick_file(directory: Path, *candidates: str) -> Optional[Path]:
@@ -35,7 +36,7 @@ def _pick_file(directory: Path, *candidates: str) -> Optional[Path]:
 
 def guess_lang(text: str) -> str:
     """Fallback heuristic when language metadata is absent."""
-    if re.search(r"[\u4e00-\u9fff]", text):
+    if CJK_RE.search(text):
         return "yue" if any(c in YUE_CHARS for c in text) else "zh"
     return "en"
 
@@ -170,7 +171,7 @@ class Recognizer:
                 m = TAG_RE.search(lang_attr)
                 lang = m.group(0)[2:-2] if m else lang_attr.strip()
             else:
-                m = re.search(r"<\|(en|zh|yue|ja|ko)\|>", raw_text)
+                m = LANG_TAG_RE.search(raw_text)
                 if m:
                     lang = m.group(1)
 
@@ -184,12 +185,26 @@ class Recognizer:
         return text, lang
 
 
+_pycantonese_mod: Any = None
+_pypinyin_lazy: Any = None
+_pypinyin_tone_style: Any = None
+
+
+@functools.lru_cache(maxsize=256)
 def romanize(text: str, lang: str) -> Optional[str]:
-    """Generate romanization: Mandarin → Pinyin, Cantonese → Jyutping."""
+    """Generate romanization: Mandarin → Pinyin, Cantonese → Jyutping (lazy-loaded & cached)."""
+    global _pycantonese_mod, _pypinyin_lazy, _pypinyin_tone_style
     if lang == "zh":
-        return " ".join(lazy_pinyin(text, style=Style.TONE))
+        if _pypinyin_lazy is None:
+            from pypinyin import Style, lazy_pinyin
+            _pypinyin_lazy = lazy_pinyin
+            _pypinyin_tone_style = Style.TONE
+        return " ".join(_pypinyin_lazy(text, style=_pypinyin_tone_style))
     if lang == "yue":
-        tokens = [j for _, j in pycantonese.characters_to_jyutping(text) if j]
+        if _pycantonese_mod is None:
+            import pycantonese
+            _pycantonese_mod = pycantonese
+        tokens = [j for _, j in _pycantonese_mod.characters_to_jyutping(text) if j]
         return " ".join(tokens) if tokens else None
     return None
 
@@ -212,34 +227,38 @@ class OfflineTranslator:
         self.to_lang = next(l for l in installed if l.code == "en")
         self.translation = self.from_lang.get_translation(self.to_lang)
         self.t2s = OpenCC("t2s")
+        self._cached_translate = functools.lru_cache(maxsize=128)(self._translate_impl)
 
-    def translate(self, text: str, lang: str) -> str:
+    def _translate_impl(self, text: str) -> str:
         simplified = self.t2s.convert(text)
         return self.translation.translate(simplified)
 
+    def translate(self, text: str, lang: str) -> str:
+        return self._cached_translate(text)
+
 
 class AzureTranslator:
-    """Azure Translator REST API (supports 'yue' and 'zh-Hans')."""
+    """Azure Translator REST API (supports 'yue' and 'zh-Hans') with persistent HTTP session."""
     URL = "https://api.cognitive.microsofttranslator.com/translate"
 
     def __init__(self):
         import requests
-        self._requests = requests
         self.key = os.environ.get("AZURE_TRANSLATOR_KEY")
         self.region = os.environ.get("AZURE_TRANSLATOR_REGION", "global")
         if not self.key:
             raise RuntimeError("Missing AZURE_TRANSLATOR_KEY environment variable.")
+        self._session = requests.Session()
+        self._session.headers.update({
+            "Ocp-Apim-Subscription-Key": self.key,
+            "Ocp-Apim-Subscription-Region": self.region,
+            "Content-Type": "application/json",
+        })
 
     def translate(self, text: str, lang: str) -> str:
         src = {"zh": "zh-Hans", "yue": "yue"}.get(lang, "zh-Hans")
-        r = self._requests.post(
+        r = self._session.post(
             self.URL,
             params={"api-version": "3.0", "from": src, "to": "en"},
-            headers={
-                "Ocp-Apim-Subscription-Key": self.key,
-                "Ocp-Apim-Subscription-Region": self.region,
-                "Content-Type": "application/json",
-            },
             json=[{"Text": text}],
             timeout=8,
         )
@@ -248,21 +267,21 @@ class AzureTranslator:
 
 
 class GoogleTranslator:
-    """Google Cloud Translation Basic (v2) REST API (supports 'yue' and 'zh-CN')."""
+    """Google Cloud Translation Basic (v2) REST API (supports 'yue' and 'zh-CN') with persistent HTTP session."""
     URL = "https://translation.googleapis.com/language/translate/v2"
 
     def __init__(self):
         import requests
-        self._requests = requests
         self.key = os.environ.get("GOOGLE_TRANSLATE_API_KEY")
         if not self.key:
             raise RuntimeError("Missing GOOGLE_TRANSLATE_API_KEY environment variable.")
+        self._session = requests.Session()
+        self._session.headers.update({"X-goog-api-key": self.key})
 
     def translate(self, text: str, lang: str) -> str:
         src = {"zh": "zh-CN", "yue": "yue"}.get(lang, "zh-CN")
-        r = self._requests.post(
+        r = self._session.post(
             self.URL,
-            headers={"X-goog-api-key": self.key},
             json={"q": text, "source": src, "target": "en", "format": "text"},
             timeout=8,
         )

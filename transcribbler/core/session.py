@@ -84,6 +84,7 @@ class TranscriptionSession:
         self.q: queue.Queue[Utterance] = queue.Queue()
         self._interim_lock = threading.Lock()
         self._latest_interim: dict[str, Utterance] = {}
+        self._last_interim_text: dict[str, tuple[str, str]] = {}
         self._finalized_ids: set[str] = set()
         self._last_interim_source: str = "OTHERS"
         self._work_event = threading.Event()
@@ -261,13 +262,20 @@ class TranscriptionSession:
                         with self._interim_lock:
                             if u.utterance_id in self._finalized_ids:
                                 continue
+                        # Deduplicate unchanged consecutive interims for the same utterance
+                        if self._last_interim_text.get(u.source) == (u.utterance_id, text):
+                            continue
+                        self._last_interim_text[u.source] = (u.utterance_id, text)
+                    else:
+                        if self._last_interim_text.get(u.source, ("", ""))[0] == u.utterance_id:
+                            self._last_interim_text.pop(u.source, None)
 
                     roman = romanize(text, lang)
                     english = ""
                     if self.translator and self.output_mode in ("translate", "all"):
                         if lang == "en":
                             english = text
-                        elif u.is_final or self.tname == "offline":
+                        elif u.is_final or (self.tname == "offline" and self.q.empty()):
                             try:
                                 english = self.translator.translate(text, lang)
                             except Exception as e:
@@ -305,6 +313,7 @@ class TranscriptionSession:
         if not enabled:
             with self._interim_lock:
                 self._latest_interim.pop(source, None)
+                self._last_interim_text.pop(source, None)
 
         with self._device_lock:
             found = False
@@ -328,6 +337,7 @@ class TranscriptionSession:
 
         with self._interim_lock:
             self._latest_interim.clear()
+            self._last_interim_text.clear()
 
         self._work_event.set()
         if self.worker_thread and self.worker_thread.is_alive():

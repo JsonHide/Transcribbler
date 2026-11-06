@@ -5,6 +5,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from transcribbler.config import APP_VERSION
 from transcribbler.core.audio import list_devices
 from transcribbler.core.engine import install_offline_pack
 from transcribbler.core.events import TranscriptEntry
@@ -28,6 +29,9 @@ if sys.platform == "win32":
 def run_cli() -> None:
     ap = argparse.ArgumentParser(
         description="Transcribbler: Live multi-source ASR & translation on Windows (CLI mode).",
+    )
+    ap.add_argument(
+        "--version", action="version", version=f"Transcribbler {APP_VERSION}",
     )
     ap.add_argument(
         "--translator", default="ask",

@@ -11,6 +11,7 @@ from typing import Optional
 
 import customtkinter as ctk
 
+from transcribbler.config import APP_TITLE
 from transcribbler.core.audio import get_audio_devices, get_device_topology_signature
 from transcribbler.core.events import TranscriptEntry
 from transcribbler.core.session import TranscriptionSession
@@ -77,7 +78,7 @@ class TranscribblerApp(ctk.CTk):
 
     def __init__(self):
         super().__init__()
-        self.title("Transcribbler – Real-Time ASR & Translation")
+        self.title(APP_TITLE)
         self.geometry("1180x720")
         self.minsize(800, 500)
         ctk.set_appearance_mode("dark")
@@ -98,12 +99,15 @@ class TranscribblerApp(ctk.CTk):
         self.layout_mode = "dual"       # "dual", "unified"
         self.font_size = FONT_SIZE_DEFAULT
         self.is_running = False
+        self._starting = False
 
         self.mic_enabled = True
         self.spk_enabled = True
 
         self._last_mic_speech = 0.0
         self._last_spk_speech = 0.0
+        self._mic_led_text = f"{LED_IDLE} Idle"
+        self._spk_led_text = f"{LED_IDLE} Idle"
 
         self._build_top_bar()
         self._build_content_area()
@@ -655,51 +659,111 @@ class TranscribblerApp(ctk.CTk):
 
         threading.Thread(target=_watch, daemon=True).start()
 
+    def _set_mic_led(self, text: str) -> None:
+        if text != self._mic_led_text:
+            self._mic_led_text = text
+            self.mic_led.configure(text=text)
+
+    def _set_spk_led(self, text: str) -> None:
+        if text != self._spk_led_text:
+            self._spk_led_text = text
+            self.spk_led.configure(text=text)
+
+    def _on_audio_activity(self, src: str, is_speech: bool, _level: float) -> None:
+        """Record speech activity timestamps directly without flooding a queue."""
+        if is_speech:
+            now = time.time()
+            if src == "ME":
+                self._last_mic_speech = now
+            else:
+                self._last_spk_speech = now
+
     def toggle_session(self):
+        if self._starting:
+            return
         if not self.is_running:
             self._start_session()
         else:
             self._stop_session()
 
     def _start_session(self):
+        if self._starting or self.is_running:
+            return
+        self._starting = True
+
         mic_idx = self._mics_map.get(self.mic_combo.get())
         spk_idx = self._spks_map.get(self.spk_combo.get())
+        translator_choice = self.trans_combo.get()
+        language = self.lang_combo.get()
+        en_engine = self.en_engine_combo.get()
+        enable_mic = self.mic_enabled
+        enable_speaker = self.spk_enabled
 
-        try:
-            self.session = TranscriptionSession(
-                translator_choice=self.trans_combo.get(),
-                language=self.lang_combo.get(),
-                en_engine=self.en_engine_combo.get(),
-                mic_device_index=mic_idx,
-                speaker_device_index=spk_idx,
-                enable_mic=self.mic_enabled,
-                enable_speaker=self.spk_enabled,
-                on_entry=self.event_queue.put,
-                on_activity=lambda src, sp, lvl: self.activity_queue.put((src, sp, lvl)),
-            )
-            self.session.start()
-            self.is_running = True
-            self.start_btn.configure(
-                text="⏹ Stop", fg_color=BTN_STOP_FG, hover_color=BTN_STOP_HOVER, state="normal",
-            )
-            self._set_status(
-                f"Transcribing... [ASR: {self.session.engine_name} | Translate: {self.session.tname}]",
-                output_path=str(self.session.out_path),
-            )
-            self.lang_combo.configure(state="disabled")
-            self.en_engine_combo.configure(state="disabled")
-            self.trans_combo.configure(state="disabled")
-        except Exception as e:
-            self._set_status(f"Startup Error: {e}")
-            self.lang_combo.configure(state="readonly")
-            self._on_lang_changed(self.lang_combo.get())
-            self.trans_combo.configure(state="readonly")
-            if self.session:
-                try:
-                    self.session.stop()
-                except Exception:
-                    pass
-                self.session = None
+        self.start_btn.configure(state="disabled", text="Starting...")
+        self.lang_combo.configure(state="disabled")
+        self.en_engine_combo.configure(state="disabled")
+        self.trans_combo.configure(state="disabled")
+        self._set_status("Loading speech model & opening audio streams...")
+
+        def _async_start():
+            session: Optional[TranscriptionSession] = None
+            try:
+                session = TranscriptionSession(
+                    translator_choice=translator_choice,
+                    language=language,
+                    en_engine=en_engine,
+                    mic_device_index=mic_idx,
+                    speaker_device_index=spk_idx,
+                    enable_mic=enable_mic,
+                    enable_speaker=enable_speaker,
+                    on_entry=self.event_queue.put,
+                    on_activity=self._on_audio_activity,
+                )
+                session.start()
+                if self._watcher_stop.is_set():
+                    session.stop()
+                    return
+                self.after(0, lambda s=session: self._on_start_complete(s))
+            except Exception as e:
+                if session is not None:
+                    try:
+                        session.stop()
+                    except Exception:
+                        pass
+                if not self._watcher_stop.is_set():
+                    err_msg = str(e)
+                    self.after(0, lambda msg=err_msg: self._on_start_error(msg))
+
+        threading.Thread(target=_async_start, daemon=True).start()
+
+    def _on_start_complete(self, session: TranscriptionSession) -> None:
+        self._starting = False
+        self.session = session
+        self.is_running = True
+        # Sync any channel toggle changes made while the model was loading
+        if session.enable_mic != self.mic_enabled:
+            session.set_channel_enabled("ME", self.mic_enabled)
+        if session.enable_speaker != self.spk_enabled:
+            session.set_channel_enabled("OTHERS", self.spk_enabled)
+        self.start_btn.configure(
+            text="⏹ Stop", fg_color=BTN_STOP_FG, hover_color=BTN_STOP_HOVER, state="normal",
+        )
+        self._set_status(
+            f"Transcribing... [ASR: {session.engine_name} | Translate: {session.tname}]",
+            output_path=str(session.out_path),
+        )
+
+    def _on_start_error(self, err_msg: str) -> None:
+        self._starting = False
+        self.session = None
+        self.is_running = False
+        self.start_btn.configure(
+            text="▶ Start", fg_color=BTN_START_FG, hover_color=BTN_START_HOVER, state="normal",
+        )
+        self._set_status(f"Startup Error: {err_msg}")
+        self.lang_combo.configure(state="readonly")
+        self._on_lang_changed(self.lang_combo.get())
+        self.trans_combo.configure(state="readonly")
 
     def _stop_session(self):
         self.start_btn.configure(state="disabled", text="Stopping...")
@@ -720,8 +784,8 @@ class TranscribblerApp(ctk.CTk):
             text="▶ Start", fg_color=BTN_START_FG, hover_color=BTN_START_HOVER, state="normal",
         )
         self._set_status("Stopped.")
-        self.mic_led.configure(text=f"{LED_IDLE} Idle")
-        self.spk_led.configure(text=f"{LED_IDLE} Idle")
+        self._set_mic_led(f"{LED_IDLE} Idle" if self.mic_enabled else f"{LED_IDLE} Disabled")
+        self._set_spk_led(f"{LED_IDLE} Idle" if self.spk_enabled else f"{LED_IDLE} Disabled")
         self.mic_combo.configure(state="readonly")
         self.spk_combo.configure(state="readonly")
         self.lang_combo.configure(state="readonly")
@@ -730,30 +794,29 @@ class TranscribblerApp(ctk.CTk):
 
     def _process_events(self):
         now = time.time()
-        activity_count = 0
-        while not self.activity_queue.empty() and activity_count < 25:
+        # Drain legacy activity_queue if populated externally
+        while not self.activity_queue.empty():
             src, is_speech, _ = self.activity_queue.get_nowait()
             if is_speech:
                 if src == "ME":
                     self._last_mic_speech = now
-                    self.mic_led.configure(text=f"{LED_ACTIVE} Speaking")
                 else:
                     self._last_spk_speech = now
-                    self.spk_led.configure(text=f"{LED_ACTIVE} Speaking")
-            activity_count += 1
 
         if self.is_running:
-            if self.mic_enabled:
-                if now - self._last_mic_speech > 0.6:
-                    self.mic_led.configure(text=f"{LED_IDLE} Listening")
+            if not self.mic_enabled:
+                self._set_mic_led(f"{LED_IDLE} Disabled")
+            elif now - self._last_mic_speech <= 0.6:
+                self._set_mic_led(f"{LED_ACTIVE} Speaking")
             else:
-                self.mic_led.configure(text=f"{LED_IDLE} Disabled")
+                self._set_mic_led(f"{LED_IDLE} Listening")
 
-            if self.spk_enabled:
-                if now - self._last_spk_speech > 0.6:
-                    self.spk_led.configure(text=f"{LED_IDLE} Listening")
+            if not self.spk_enabled:
+                self._set_spk_led(f"{LED_IDLE} Disabled")
+            elif now - self._last_spk_speech <= 0.6:
+                self._set_spk_led(f"{LED_ACTIVE} Speaking")
             else:
-                self.spk_led.configure(text=f"{LED_IDLE} Disabled")
+                self._set_spk_led(f"{LED_IDLE} Listening")
 
         while not self.event_queue.empty():
             entry = self.event_queue.get_nowait()
@@ -784,6 +847,7 @@ class TranscribblerApp(ctk.CTk):
         entry_id: str,
         block_text: str,
         is_final: bool,
+        scroll: bool = True,
     ) -> None:
         """Insert or update an utterance block in-place using Tkinter text tags."""
         tag = f"entry_{entry_id}"
@@ -801,7 +865,8 @@ class TranscribblerApp(ctk.CTk):
                 textbox.insert("end", block_text)
             else:
                 textbox.insert("end", block_text, (tag,))
-        textbox.see("end")
+        if scroll:
+            textbox.see("end")
 
     def _finalize_pending_interims(self, source: Optional[str] = None) -> None:
         """Lock in any active interim blocks when a channel is disabled or session stops."""
@@ -820,16 +885,17 @@ class TranscribblerApp(ctk.CTk):
 
     def _render_entry(self, entry: TranscriptEntry):
         col_block = format_entry_block(entry, include_source=False)
-        uni_block = format_entry_block(entry, include_source=True)
 
         if entry.source == "ME":
             self._upsert_textbox_block(self.mic_textbox, entry.id, col_block, entry.is_final)
         else:
             self._upsert_textbox_block(self.spk_textbox, entry.id, col_block, entry.is_final)
 
-        mode = self.filter_combo.get()
-        if self._matches_filter(mode, entry.source):
-            self._upsert_textbox_block(self.unified_textbox, entry.id, uni_block, entry.is_final)
+        if self.layout_mode == "unified":
+            mode = self.filter_combo.get()
+            if self._matches_filter(mode, entry.source):
+                uni_block = format_entry_block(entry, include_source=True)
+                self._upsert_textbox_block(self.unified_textbox, entry.id, uni_block, entry.is_final)
 
     def _rebuild_unified_textbox(self):
         self.unified_textbox.delete("1.0", "end")
@@ -841,6 +907,7 @@ class TranscribblerApp(ctk.CTk):
                     e.id,
                     format_entry_block(e, include_source=True),
                     e.is_final,
+                    scroll=False,
                 )
         self.unified_textbox.see("end")
 
@@ -856,7 +923,8 @@ class TranscribblerApp(ctk.CTk):
             self.mic_frame.pack(side="left", fill="both", expand=True, padx=(0, 4))
             self.spk_frame.pack(side="right", fill="both", expand=True, padx=(4, 0))
 
-        self._rebuild_unified_textbox()
+        if self.layout_mode == "unified":
+            self._rebuild_unified_textbox()
 
     def _on_lang_changed(self, choice: str) -> None:
         """Enable the EN Model selector only when Lang = en."""
@@ -938,13 +1006,13 @@ class TranscribblerApp(ctk.CTk):
                 text="Disable", fg_color=MIC_BTN_DISABLE_FG, hover_color=MIC_BTN_DISABLE_HOVER,
             )
             self.mic_header.configure(fg_color=MIC_HEADER_COLOR)
-            self.mic_led.configure(text=f"{LED_IDLE} Listening" if self.is_running else f"{LED_IDLE} Idle")
+            self._set_mic_led(f"{LED_IDLE} Listening" if self.is_running else f"{LED_IDLE} Idle")
         else:
             self.mic_toggle_btn.configure(
                 text="Enable", fg_color=MIC_BTN_ENABLE_FG, hover_color=MIC_BTN_ENABLE_HOVER,
             )
             self.mic_header.configure(fg_color=MIC_HEADER_COLOR)
-            self.mic_led.configure(text=f"{LED_IDLE} Disabled")
+            self._set_mic_led(f"{LED_IDLE} Disabled")
             self._finalize_pending_interims("ME")
 
         if self.session:
@@ -958,13 +1026,13 @@ class TranscribblerApp(ctk.CTk):
                 text="Disable", fg_color=SPK_BTN_DISABLE_FG, hover_color=SPK_BTN_DISABLE_HOVER,
             )
             self.spk_header.configure(fg_color=SPK_HEADER_COLOR)
-            self.spk_led.configure(text=f"{LED_IDLE} Listening" if self.is_running else f"{LED_IDLE} Idle")
+            self._set_spk_led(f"{LED_IDLE} Listening" if self.is_running else f"{LED_IDLE} Idle")
         else:
             self.spk_toggle_btn.configure(
                 text="Enable", fg_color=SPK_BTN_ENABLE_FG, hover_color=SPK_BTN_ENABLE_HOVER,
             )
             self.spk_header.configure(fg_color=SPK_HEADER_COLOR)
-            self.spk_led.configure(text=f"{LED_IDLE} Disabled")
+            self._set_spk_led(f"{LED_IDLE} Disabled")
             self._finalize_pending_interims("OTHERS")
 
         if self.session:
