@@ -5,6 +5,12 @@
 
 ---
 
+![Python](https://img.shields.io/badge/Python-3.10%20--%203.13-3776AB?logo=python&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011-0078D6?logo=windows&logoColor=white)
+![Version](https://img.shields.io/badge/Version-v1.0.0-teal)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
+![CPU Only](https://img.shields.io/badge/Hardware-CPU%20Only%20(No%20GPU)-success)
+
 ## Features
 
 - ⚡ **Near-Real-Time Streaming Transcription**:
@@ -101,6 +107,9 @@ Transcribbler/
 Clone or open the repository in PowerShell:
 
 ```powershell
+git clone https://github.com/JsonHide/Transcribbler.git
+cd Transcribbler
+
 # Optional: Create and activate a virtual environment
 py -3.12 -m venv .venv
 .venv\Scripts\activate
@@ -109,10 +118,15 @@ py -3.12 -m venv .venv
 pip install -r requirements.txt
 ```
 
-> [!NOTE]
-> `argostranslate` is only needed if you wish to use the on-device offline translation backend. If needed, install it via:
+> [!TIP]
+> On a fresh Windows machine, if PowerShell blocks `.venv\Scripts\activate` due to execution policy, run:
 > ```powershell
-> pip install argostranslate
+> Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+> ```
+
+> [!NOTE]
+> `argostranslate` is already included in `requirements.txt`. If you plan to use the on-device offline translation backend, download the Chinese-to-English (`zh -> en`) language pack once via:
+> ```powershell
 > python main.py --cli --install-offline-pack
 > ```
 
@@ -120,9 +134,9 @@ pip install -r requirements.txt
 
 #### A. Multilingual Engine (`Lang = auto`: English, Cantonese, Mandarin — SenseVoice-Small INT8, ~230 MB)
 ```powershell
-mkdir -p models
+New-Item -ItemType Directory -Force -Path models | Out-Null
 cd models
-curl -L -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2
+curl.exe -L -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2
 tar -xf sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2
 rm sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2
 cd ..
@@ -130,9 +144,9 @@ cd ..
 
 #### B. Primary English Engine (`Lang = en`: Meetings & Podcasts — NeMo Parakeet-TDT-0.6B-v2 INT8)
 ```powershell
-mkdir -p models
+New-Item -ItemType Directory -Force -Path models | Out-Null
 cd models
-curl -L -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2
+curl.exe -L -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2
 tar -xf sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2
 rm sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2
 cd ..
@@ -140,9 +154,9 @@ cd ..
 
 #### C. Optional Ultra-Low-End PC English Fallback (`Lang = en`: Moonshine-Base-EN INT8)
 ```powershell
-mkdir -p models
+New-Item -ItemType Directory -Force -Path models | Out-Null
 cd models
-curl -L -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-base-en-int8.tar.bz2
+curl.exe -L -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-base-en-int8.tar.bz2
 tar -xf sherpa-onnx-moonshine-base-en-int8.tar.bz2
 rm sherpa-onnx-moonshine-base-en-int8.tar.bz2
 cd ..
@@ -215,7 +229,7 @@ python main.py --cli --mic-device 1 --speaker-device 10 --out transcripts/meetin
 
 ## Cloud Translation Setup (Optional)
 
-If using cloud translation:
+If using cloud translation, set the required environment variables and **open a new PowerShell window** so they take effect:
 
 - **Azure Translator**:
   ```powershell
