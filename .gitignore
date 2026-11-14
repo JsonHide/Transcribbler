@@ -43,3 +43,7 @@ __pycache__/
 # Logs and scratch files
 *.log
 scratch/
+
+# Assets
+assets/
+
