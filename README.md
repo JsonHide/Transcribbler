@@ -28,7 +28,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%20--%203.13-3776AB?logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011-0078D6?logo=windows&logoColor=white)
-![Version](https://img.shields.io/badge/Version-v1.0.0-teal)
+[![Version](https://img.shields.io/github/v/release/JsonHide/Transcribbler?label=Version&color=teal)](https://github.com/JsonHide/Transcribbler/releases)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
 ![CPU Only](https://img.shields.io/badge/Hardware-CPU%20Only%20(No%20GPU)-success)
 
