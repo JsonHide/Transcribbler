@@ -86,6 +86,7 @@ class Segmenter:
         silence_ms: int = 450,
         soft_max_seconds: float = 5.0,
         soft_silence_ms: int = 150,
+        soft_silence_rms_ratio: float = 0.18,
         max_seconds: float = 12.0,
         min_ms: int = 300,
         pre_speech_ms: int = 180,
@@ -111,6 +112,7 @@ class Segmenter:
         self.silence_limit = max(1, silence_ms // FRAME_MS)
         self.soft_max_frames = int(soft_max_seconds * 1000 // FRAME_MS)
         self.soft_silence_limit = max(1, soft_silence_ms // FRAME_MS)
+        self.soft_silence_rms_ratio = soft_silence_rms_ratio
         self.max_frames = int(max_seconds * 1000 // FRAME_MS)
         self.min_frames = max(1, min_ms // FRAME_MS)
         self.interim_interval_frames = max(1, interim_interval_ms // FRAME_MS)
@@ -155,7 +157,9 @@ class Segmenter:
                 self.frames_since_interim += 1
 
                 # Detect energy-dip micro-pauses (when VAD hangover stays True during a breath pause)
-                if self.speech_rms_ema > 0.0 and rms < max(0.004, self.speech_rms_ema * 0.18):
+                if self.speech_rms_ema > 0.0 and rms < max(
+                    0.004, self.speech_rms_ema * self.soft_silence_rms_ratio
+                ):
                     self.soft_silent += 1
                 else:
                     self.soft_silent = 0

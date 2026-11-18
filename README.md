@@ -35,10 +35,11 @@
 ## Features
 
 - ⚡ **Near-Real-Time Streaming Transcription**:
-  - Upgraded from delayed batch chunking to **low-latency streaming recognition (1.5–2.5s target latency)**.
-  - Emits live interim snapshots with visual indicator badges (`⏳ ...`) updated in-place every 1.5 seconds, with **interim text deduplication** and **final-utterance priority** so completed sentences never wait behind interim previews.
+  - Upgraded from delayed batch chunking to **low-latency streaming recognition** (**1.5–2.5s** in GUI mode; **2–3s** continuous-speech turnaround in headless CLI mode).
+  - **GUI Interim Previews**: Emits live interim snapshots with visual indicator badges (`⏳ ...`) updated in-place every 1.5 seconds, with **interim text deduplication** and **final-utterance priority** so completed sentences never wait behind interim previews.
+  - **CLI Low-Latency Final-Only Mode**: Headless CLI disables redundant interim decoding (`enable_interim=False`) and uses tuned continuous-speech thresholds (`silence_ms=360`, `soft_max_seconds=2.2`, `soft_silence_ms=90`, `max_seconds=3.5`) to keep CPU load minimal while delivering finalized output every 2–3 seconds.
   - **Drop-stale interim backpressure & bounded audio queues**: Asynchronous single-slot interim buffering and bounded PortAudio capture queues (`maxsize=256`) prevent queue buildup and ensure the pipeline never falls behind real time.
-  - **Adaptive Clause Splitting, Lowest-RMS Carry-Over & Lossless Decimation**: Adaptive micro-pause detection splits long speech naturally at clause boundaries; continuous non-stop speech (up to 12s) splits at the lowest-energy syllable boundary with frame context carry-over and remainder-preserving 48 kHz → 16 kHz decimation to avoid cutting words or dropping samples.
+  - **Adaptive Clause Splitting, Lowest-RMS Carry-Over & Lossless Decimation**: Adaptive micro-pause detection splits long speech naturally at clause boundaries; continuous non-stop speech splits at the lowest-energy syllable boundary with frame context carry-over and remainder-preserving 48 kHz → 16 kHz decimation to avoid cutting words or dropping samples.
 - 🚀 **Optimized Startup & Low-Overhead Runtime**:
   - **Non-Blocking Async Model Loading**: Starts ASR and translation engines on a background thread so the desktop UI stays smooth and responsive while loading models.
   - **Lazy Romanizer Initialization & LRU Caching**: Defers `pycantonese` and `pypinyin` corpus loading until Chinese/Cantonese speech is detected (cutting cold startup time by ~40%) and caches romanization and offline translation lookups.
@@ -68,7 +69,7 @@
     - **Right Pinned Device Controls**: Keeps the **`Mic:`** and **`Speaker:`** selectors and the **`⟳ Rescan`** button permanently visible on the right regardless of status text or path length.
   - **Live VAD Activity LEDs**: Pulsing visual indicators when speech is actively detected on either channel, backed by an auto-reset watchdog for silent audio streams.
   - **Hot-Plug Device Detection**: Plug in or unplug USB / Bluetooth headphones and the **Mic** / **Speaker** lists update automatically (or click **⟳ Rescan** to rescan on demand — hover it for a tooltip) — no restart needed. You can switch devices live mid-session without reloading the speech model.
-- 💻 **Headless CLI Mode**: Full-featured command-line interface preserving complete terminal compatibility, automated piping support, and graceful `Ctrl+C` interrupt handling in PowerShell.
+- 💻 **Headless CLI Mode**: Full-featured command-line interface preserving complete terminal compatibility, low-latency 2–3s final-only streaming, automated piping support, and graceful `Ctrl+C` interrupt handling in PowerShell.
 
 ---
 
@@ -107,6 +108,8 @@ Transcribbler/
 │   │   ├── components.py                      # Utterance formatting and helpers
 │   │   └── app.py                             # TranscribblerApp (CustomTkinter UI)
 │   └── cli.py                                 # Headless CLI entrypoint (with signal handling)
+├── tests/
+│   └── test_cli_streaming.py                  # Unit & smoke tests for CLI streaming and GUI defaults
 ├── main.py                                    # Master entrypoint (GUI default or --cli)
 ├── requirements.txt
 ├── .gitignore
@@ -227,7 +230,8 @@ python main.py --cli --mic-device 1 --speaker-device 10 --out transcripts/meetin
 ```
 
 > [!TIP]
-> Press **`Ctrl+C`** at any time to gracefully drain pending transcriptions and stop the CLI.
+> Press **`Ctrl+C`** at any time to gracefully drain pending transcriptions and stop the CLI.  
+> Headless CLI mode automatically uses final-only low-latency segmentation (`2–3s` chunks during continuous speech, with interim decoding disabled) to minimize CPU usage on models like Parakeet-TDT.
 
 #### Available CLI Options:
 ```
@@ -312,6 +316,16 @@ Transcripts are written to both the interface and `transcripts/transcript_YYYYMM
 1. **Headset Recommendation**: When capturing both microphone and speaker audio simultaneously, wear a headset to avoid external speaker audio bleeding into your microphone.
 2. **WASAPI Loopback Behavior**: Windows stops sending loopback frames when no application is emitting sound. Transcribbler handles this gracefully with an automatic VAD activity watchdog.
 3. **Bluetooth Headsets**: If using a Bluetooth headset, verify sample rates with `python main.py --cli --list-devices` and select the appropriate interface from the GUI dropdown or CLI flag. In the GUI, a newly paired headset shows up automatically; if it doesn't, click **⟳ Rescan**.
+
+---
+
+## Running Tests
+
+Run the unit and model smoke test suite using Python's built-in `unittest` runner:
+
+```powershell
+python -m unittest discover -s tests -v
+```
 
 ---
 

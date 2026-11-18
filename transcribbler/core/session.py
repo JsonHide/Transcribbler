@@ -56,6 +56,8 @@ class TranscriptionSession:
         speaker_device_index: Optional[int] = None,
         enable_mic: bool = True,
         enable_speaker: bool = True,
+        enable_interim: bool = True,
+        segmenter_kwargs: Optional[dict[str, Any]] = None,
         output_path: Optional[Path] = None,
         on_entry: Optional[Callable[[TranscriptEntry], None]] = None,
         on_activity: Optional[Callable[[str, bool, float], None]] = None,
@@ -68,6 +70,8 @@ class TranscriptionSession:
         self.speaker_index = speaker_device_index
         self.enable_mic = enable_mic
         self.enable_speaker = enable_speaker
+        self.enable_interim = enable_interim
+        self._segmenter_kwargs = dict(segmenter_kwargs) if segmenter_kwargs else {}
         self.on_entry = on_entry
         self.on_activity = on_activity
 
@@ -145,7 +149,8 @@ class TranscriptionSession:
             self.q,
             on_activity=self.on_activity,
             on_final=self._submit_final,
-            on_interim=self._submit_interim,
+            on_interim=self._submit_interim if self.enable_interim else None,
+            **self._segmenter_kwargs,
         )
         self.captures.append(Capture(self.p, dev, seg))
 

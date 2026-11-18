@@ -103,6 +103,14 @@ def run_cli() -> None:
         text = format_entry_text(e, args.output_mode)
         print(text, end="", flush=True)
 
+    CLI_SEGMENTER_KWARGS = {
+        "silence_ms": 360,
+        "soft_max_seconds": 2.2,
+        "soft_silence_ms": 90,
+        "soft_silence_rms_ratio": 0.25,
+        "max_seconds": 3.5,
+    }
+
     try:
         session = TranscriptionSession(
             translator_choice=args.translator,
@@ -114,6 +122,8 @@ def run_cli() -> None:
             speaker_device_index=args.speaker_device,
             enable_mic=not args.no_mic,
             enable_speaker=not args.no_speaker,
+            enable_interim=False,
+            segmenter_kwargs=CLI_SEGMENTER_KWARGS,
             output_path=Path(args.out) if args.out else None,
             on_entry=print_entry,
         )
