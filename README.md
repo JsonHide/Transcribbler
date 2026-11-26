@@ -94,7 +94,7 @@ Transcribbler/
 │       └── tokens.txt
 ├── transcripts/                               # Auto-created transcript output directory
 ├── transcribbler/
-│   ├── __init__.py                            # Single source of truth for __version__ ("1.0.1")
+│   ├── __init__.py                            # Single source of truth for __version__ ("1.1.0")
 │   ├── config.py                              # Version/title constants, audio settings, paths
 │   ├── core/
 │   │   ├── __init__.py
@@ -235,7 +235,7 @@ python main.py --cli --mic-device 1 --speaker-device 10 --out transcripts/meetin
 
 #### Available CLI Options:
 ```
-  --version                                    Show program's version number (v1.0.1) and exit
+  --version                                    Show program's version number (v1.1.0) and exit
   --translator {ask,offline,azure,google,off}  Translation backend (default: ask)
   --language {auto,en,zh,yue}                  Recognition language: 'auto' (SenseVoice) or 'en' (Parakeet/Moonshine)
   --en-engine {auto,parakeet,moonshine}        Preferred English engine when --language=en (default: auto)
