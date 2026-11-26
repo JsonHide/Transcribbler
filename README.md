@@ -94,7 +94,7 @@ Transcribbler/
 │       └── tokens.txt
 ├── transcripts/                               # Auto-created transcript output directory
 ├── transcribbler/
-│   ├── __init__.py                            # Single source of truth for __version__ ("1.1.0")
+│   ├── __init__.py                            # Single source of truth for __version__ ("1.1.1")
 │   ├── config.py                              # Version/title constants, audio settings, paths
 │   ├── core/
 │   │   ├── __init__.py
@@ -199,7 +199,7 @@ python main.py
 ```
 ![alt text](gui.png)
 - **Start Capture**: Click **▶ Start** to begin listening to your mic and system audio.
-- **Select Language & English ASR Engine (`Lang:` & `Model:`)**: Choose **`auto`** for multilingual SenseVoice-Small (English, Cantonese, Mandarin with Pinyin/Jyutping) or **`en`** for dedicated English meetings and podcasts. Selecting **`en`** unlocks the **`Model:`** dropdown where you can choose **`auto`** (Parakeet with Moonshine fallback), **`parakeet`** (NeMo Parakeet-TDT-0.6B-v2), or **`moonshine`** (Moonshine-Base-EN). The active ASR engine is displayed in the bottom status bar.
+- **Select Language, English Engine & Cantonese Script (`Lang:`, `Model:` & `Yue:`)**: Choose **`auto`** for multilingual SenseVoice-Small (English, Cantonese, Mandarin with Pinyin/Jyutping) or **`en`** for dedicated English meetings and podcasts. When **`Lang = auto`**, the **`Yue:`** dropdown lets you toggle Cantonese (`yue`) output live between **`Trad`** (Hong Kong Traditional Chinese, default) and **`Simp`** (raw Simplified Chinese). Selecting **`en`** unlocks the **`Model:`** dropdown where you can choose **`auto`** (Parakeet with Moonshine fallback), **`parakeet`** (NeMo Parakeet-TDT-0.6B-v2), or **`moonshine`** (Moonshine-Base-EN). The active ASR engine is displayed in the bottom status bar.
 - **Channel Mute / Pause**: Click **`[Disable]`** or **`[Enable]`** directly in either the `Microphone (ME)` or `Speaker / System (OTHERS)` header to pause or resume capturing that channel live without stopping the session.
 - **Switch Views & Filter Sources**: Inside the left **Audio & View Cluster**, pick **All Sources**, **Mic Only**, or **Speaker Only** from the filter dropdown, or click the segmented view icon toggle (`◫` on the left for **Dual Column**, `☰` on the right for **Unified Timeline**; hover either icon for a tooltip).
 - **Refresh / Switch Audio Devices & Two-Line Status Bar**: The bottom bar shows live engine/translation telemetry on Line 1 and the active `Output:` file path on Line 2 (with a hover tooltip for the full path), while pinning the **Mic:** / **Speaker:** dropdowns and **⟳ Rescan** button on the right so they are always accessible. Newly connected USB or Bluetooth headsets appear automatically within ~3 seconds, and you can switch devices live mid-session without stopping transcription.
@@ -235,10 +235,11 @@ python main.py --cli --mic-device 1 --speaker-device 10 --out transcripts/meetin
 
 #### Available CLI Options:
 ```
-  --version                                    Show program's version number (v1.1.0) and exit
+  --version                                    Show program's version number (v1.1.1) and exit
   --translator {ask,offline,azure,google,off}  Translation backend (default: ask)
   --language {auto,en,zh,yue}                  Recognition language: 'auto' (SenseVoice) or 'en' (Parakeet/Moonshine)
   --en-engine {auto,parakeet,moonshine}        Preferred English engine when --language=en (default: auto)
+  --yue-script {traditional,simplified}        Chinese script for Cantonese (yue) output: 'traditional' (default) or 'simplified'
   --output-mode {original,roman,translate,all} Fields to output (default: all)
   --threads THREADS                            CPU threads for ONNX ASR (default: 4)
   --no-mic                                     Disable microphone capture
@@ -293,6 +294,9 @@ Transcripts are written to both the interface and `transcripts/transcript_YYYYMM
 
 ## Release Highlights
 
+- **Hong Kong Traditional Chinese for Cantonese (`yue`) + Live Script Toggle (v1.1.1)**:
+  - **HK Traditional Cantonese Output**: Automatically converts SenseVoice's Simplified Cantonese (`yue`) output to Hong Kong Traditional Chinese via `OpenCC("s2hk")` with targeted Cantonese phrase fixes (`系咪` → `係咪`, `都系` → `都係`, `就系` → `就係`, `翻去` → `返去`, etc.) while preserving standard words like `系統`, `關係`, and `翻譯`. This also restores complete Jyutping romanization coverage in `pycantonese`.
+  - **CLI Flag & Live GUI Toggle**: Added `--yue-script {traditional,simplified}` (default: `traditional`) to the CLI and a `Yue:` (`Trad` / `Simp`) selector in the GUI pipeline bar that updates active sessions live without reloading the model.
 - **3-Phase Stability-First Performance Optimization & Centralized `v1.0.0` Versioning (v1.0.0)**:
   - **Phase 1 — GUI Responsiveness & Fast Startup**: Moved ONNX model loading and session initialization off the Tkinter main thread to a background startup worker so the GUI never freezes on `▶ Start`. Lazy-loaded `pycantonese` and `pypinyin` corpora on first Chinese/Cantonese detection (cutting cold startup time by ~40%), skipped hidden `Unified Timeline` widget updates while in `Dual Column` mode, and replaced high-frequency VAD activity queue flooding with monotonic timestamp tracking and state-diff guards.
   - **Phase 2 — ASR Worker, Romanization & Translation Efficiency**: Added LRU caching on `romanize()` (`maxsize=256`) and `OfflineTranslator.translate()` (`maxsize=128`), pre-compiled language/CJK regexes, switched `AzureTranslator` and `GoogleTranslator` to persistent `requests.Session()` HTTP keep-alive connections, prioritized final utterances (`self.q.empty()`) ahead of interim previews, and deduplicated unchanged interim texts.

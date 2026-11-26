@@ -49,6 +49,11 @@ def run_cli() -> None:
         help="Preferred engine when --language=en: 'auto' (Parakeet then Moonshine), 'parakeet', or 'moonshine'",
     )
     ap.add_argument(
+        "--yue-script", default="traditional",
+        choices=["traditional", "simplified"],
+        help="Chinese script for Cantonese (yue) output: 'traditional' (HK Traditional, default) or 'simplified'",
+    )
+    ap.add_argument(
         "--output-mode", default="all",
         choices=["original", "roman", "translate", "all"],
         help="Transcript fields to output: original text, romanization, translation, or all (default: all)",
@@ -116,6 +121,7 @@ def run_cli() -> None:
             translator_choice=args.translator,
             language=args.language,
             en_engine=args.en_engine,
+            yue_script=args.yue_script,
             output_mode=args.output_mode,
             threads=args.threads,
             mic_device_index=args.mic_device,

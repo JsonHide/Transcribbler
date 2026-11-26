@@ -50,6 +50,7 @@ class TranscriptionSession:
         translator_choice: str = "off",
         language: str = "auto",
         en_engine: str = "auto",
+        yue_script: str = "traditional",
         output_mode: str = "all",
         threads: int = 4,
         mic_device_index: Optional[int] = None,
@@ -64,6 +65,7 @@ class TranscriptionSession:
     ):
         self.language = language
         self.en_engine = en_engine
+        self.yue_script = yue_script if yue_script in ("traditional", "simplified") else "traditional"
         self.output_mode = output_mode
         self.threads = threads
         self.mic_index = mic_device_index
@@ -175,7 +177,12 @@ class TranscriptionSession:
         self._work_event.clear()
 
         try:
-            self.rec = Recognizer(self.language, self.threads, en_engine=self.en_engine)
+            self.rec = Recognizer(
+                self.language,
+                self.threads,
+                en_engine=self.en_engine,
+                yue_script=self.yue_script,
+            )
             self.engine_name = self.rec.engine_name
             self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
             self.worker_thread.start()
@@ -310,6 +317,13 @@ class TranscriptionSession:
                 finally:
                     if from_fifo:
                         self.q.task_done()
+
+    def set_yue_script(self, yue_script: str) -> None:
+        """Dynamically switch Cantonese output script ('traditional' or 'simplified')."""
+        normalized = yue_script if yue_script in ("traditional", "simplified") else "traditional"
+        self.yue_script = normalized
+        if self.rec is not None:
+            self.rec.yue_script = normalized
 
     def set_channel_enabled(self, source: str, enabled: bool) -> None:
         """Dynamically enable or disable capture for 'ME' or 'OTHERS'."""

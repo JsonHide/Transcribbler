@@ -51,10 +51,17 @@ class Recognizer:
         - sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17 (from_sense_voice, use_itn=True)
     """
 
-    def __init__(self, language: str = "auto", threads: int = 4, en_engine: str = "auto"):
+    def __init__(
+        self,
+        language: str = "auto",
+        threads: int = 4,
+        en_engine: str = "auto",
+        yue_script: str = "traditional",
+    ):
         self.language = language
         self.threads = threads
         self.en_engine = (en_engine if en_engine and en_engine != "auto" else DEFAULT_EN_ENGINE) or "auto"
+        self.yue_script = yue_script if yue_script in ("traditional", "simplified") else "traditional"
         self.forced = None if language == "auto" else language
         self.engine_type = "sense_voice"
         self.engine_name = "SenseVoice-Small (int8)"
@@ -182,12 +189,70 @@ class Recognizer:
         if lang not in ("en", "zh", "yue"):
             lang = guess_lang(text)
 
+        if lang == "yue" and self.yue_script == "traditional":
+            text = to_traditional_hk(text)
+
         return text, lang
 
 
+_opencc_s2hk: Any = None
 _pycantonese_mod: Any = None
 _pypinyin_lazy: Any = None
 _pypinyin_tone_style: Any = None
+
+# High-frequency Hong Kong Cantonese phrase fixes applied after OpenCC s2hk.
+# Disambiguates Cantonese copula 係 from words like 系統/關係 and 返去/返嚟 from 翻譯.
+_YUE_HK_FIXES: tuple[tuple[str, str], ...] = (
+    ("系唔系", "係唔係"),
+    ("唔系", "唔係"),
+    ("系咪", "係咪"),
+    ("就系", "就係"),
+    ("都系", "都係"),
+    ("真系", "真係"),
+    ("又系", "又係"),
+    ("亦系", "亦係"),
+    ("定系", "定係"),
+    ("即系", "即係"),
+    ("梗系", "梗係"),
+    ("實系", "實係"),
+    ("一定系", "一定係"),
+    ("應該系", "應該係"),
+    ("可能系", "可能係"),
+    ("或者系", "或者係"),
+    ("點解系", "點解係"),
+    ("系呀", "係呀"),
+    ("系啊", "係啊"),
+    ("系囉", "係囉"),
+    ("系啦", "係啦"),
+    ("系嘅", "係嘅"),
+    ("系咁", "係咁"),
+    ("系點", "係點"),
+    ("系邊", "係邊"),
+    ("系呢", "係呢"),
+    ("系嗰", "係嗰"),
+    ("系佢", "係佢"),
+    ("系我", "係我"),
+    ("系你", "係你"),
+    ("系因為", "係因為"),
+    ("翻去", "返去"),
+    ("翻嚟", "返嚟"),
+)
+
+
+@functools.lru_cache(maxsize=256)
+def to_traditional_hk(text: str) -> str:
+    """Convert Simplified Chinese to Hong Kong Traditional Chinese with Cantonese phrase fixes."""
+    global _opencc_s2hk
+    if not text:
+        return text
+    if _opencc_s2hk is None:
+        from opencc import OpenCC
+        _opencc_s2hk = OpenCC("s2hk")
+    converted = _opencc_s2hk.convert(text)
+    for src, dst in _YUE_HK_FIXES:
+        if src in converted:
+            converted = converted.replace(src, dst)
+    return converted
 
 
 @functools.lru_cache(maxsize=256)

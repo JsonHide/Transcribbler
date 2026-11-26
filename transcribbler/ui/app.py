@@ -71,6 +71,11 @@ EN_ENGINE_TOOLTIP = (
     "parakeet: Parakeet-TDT-0.6B-v2 (higher accuracy)\n"
     "moonshine: Moonshine-Base (lighter / faster)"
 )
+YUE_SCRIPT_TOOLTIP = (
+    "Chinese script for Cantonese (yue) transcripts (when Lang = auto)\n"
+    "Trad: Hong Kong Traditional Chinese (recommended, improves Jyutping)\n"
+    "Simp: Raw Simplified Chinese from SenseVoice"
+)
 
 
 class TranscribblerApp(ctk.CTk):
@@ -236,6 +241,25 @@ class TranscribblerApp(ctk.CTk):
 
         pipe_sep2 = ctk.CTkFrame(self.pipeline_cluster, width=1, height=20, fg_color=CLUSTER_BORDER)
         pipe_sep2.pack(side="left", padx=2, pady=4)
+
+        self.yue_script_label = ctk.CTkLabel(
+            self.pipeline_cluster, text="Yue:", font=mono_lbl_font, text_color=TEXT_SECONDARY,
+        )
+        self.yue_script_label.pack(side="left", padx=(6, 2), pady=3)
+        self.yue_script_combo = ctk.CTkComboBox(
+            self.pipeline_cluster,
+            values=["Trad", "Simp"],
+            width=68, height=26,
+            fg_color=CLUSTER_BG, button_color=CLUSTER_BG,
+            button_hover_color=CLUSTER_HOVER_BG, border_width=0,
+            command=self._on_yue_script_changed, state="readonly",
+        )
+        self.yue_script_combo.set("Trad")
+        self.yue_script_combo.pack(side="left", padx=(0, 4), pady=3)
+        self.yue_script_tooltip = Tooltip(self.yue_script_combo, YUE_SCRIPT_TOOLTIP)
+
+        pipe_sep3 = ctk.CTkFrame(self.pipeline_cluster, width=1, height=20, fg_color=CLUSTER_BORDER)
+        pipe_sep3.pack(side="left", padx=2, pady=4)
 
         ctk.CTkLabel(
             self.pipeline_cluster, text="Translate:", font=mono_lbl_font, text_color=TEXT_SECONDARY,
@@ -696,6 +720,7 @@ class TranscribblerApp(ctk.CTk):
         translator_choice = self.trans_combo.get()
         language = self.lang_combo.get()
         en_engine = self.en_engine_combo.get()
+        yue_script = self._get_yue_script()
         enable_mic = self.mic_enabled
         enable_speaker = self.spk_enabled
 
@@ -712,6 +737,7 @@ class TranscribblerApp(ctk.CTk):
                     translator_choice=translator_choice,
                     language=language,
                     en_engine=en_engine,
+                    yue_script=yue_script,
                     mic_device_index=mic_idx,
                     speaker_device_index=spk_idx,
                     enable_mic=enable_mic,
@@ -740,11 +766,14 @@ class TranscribblerApp(ctk.CTk):
         self._starting = False
         self.session = session
         self.is_running = True
-        # Sync any channel toggle changes made while the model was loading
+        # Sync any channel/script toggle changes made while the model was loading
         if session.enable_mic != self.mic_enabled:
             session.set_channel_enabled("ME", self.mic_enabled)
         if session.enable_speaker != self.spk_enabled:
             session.set_channel_enabled("OTHERS", self.spk_enabled)
+        current_yue_script = self._get_yue_script()
+        if session.yue_script != current_yue_script:
+            session.set_yue_script(current_yue_script)
         self.start_btn.configure(
             text="⏹ Stop", fg_color=BTN_STOP_FG, hover_color=BTN_STOP_HOVER, state="normal",
         )
@@ -930,12 +959,23 @@ class TranscribblerApp(ctk.CTk):
         if self.layout_mode == "unified":
             self._rebuild_unified_textbox()
 
+    def _get_yue_script(self) -> str:
+        """Map the Yue script selector label to the session parameter value."""
+        return "simplified" if self.yue_script_combo.get() == "Simp" else "traditional"
+
+    def _on_yue_script_changed(self, _choice: str) -> None:
+        """Apply Cantonese Traditional/Simplified script changes live if a session is active."""
+        if self.session is not None:
+            self.session.set_yue_script(self._get_yue_script())
+
     def _on_lang_changed(self, choice: str) -> None:
-        """Enable the EN Model selector only when Lang = en."""
+        """Enable EN Model only for Lang = en, and Yue Script only for Lang = auto."""
         if choice == "en":
             self.en_engine_combo.configure(state="readonly")
+            self.yue_script_combo.configure(state="disabled")
         else:
             self.en_engine_combo.configure(state="disabled")
+            self.yue_script_combo.configure(state="readonly")
 
     def _update_view_toggle(self) -> None:
         """Redraw the Dual Column / Unified Timeline segmented icon pill."""
