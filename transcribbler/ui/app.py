@@ -300,7 +300,7 @@ class TranscribblerApp(ctk.CTk):
 
         self.clear_btn, self.clear_canvas = self._create_icon_button(
             self.utility_cluster, self._draw_trash_icon, self._clear_transcripts,
-            tooltip="Clear Session", hover_fg=ICON_DANGER_HOVER_FG,
+            tooltip="Clear Screen", hover_fg=ICON_DANGER_HOVER_FG,
         )
         self.clear_btn.pack(side="left", padx=1, pady=3)
 
@@ -778,7 +778,19 @@ class TranscribblerApp(ctk.CTk):
 
         threading.Thread(target=_async_stop, daemon=True).start()
 
+    def _drain_event_queue(self) -> None:
+        while not self.event_queue.empty():
+            entry = self.event_queue.get_nowait()
+            if entry.id in self._entry_index_by_id:
+                idx = self._entry_index_by_id[entry.id]
+                self.entries[idx] = entry
+            else:
+                self._entry_index_by_id[entry.id] = len(self.entries)
+                self.entries.append(entry)
+            self._render_entry(entry)
+
     def _on_stop_complete(self):
+        self._drain_event_queue()
         self._finalize_pending_interims()
         self.start_btn.configure(
             text="▶ Start", fg_color=BTN_START_FG, hover_color=BTN_START_HOVER, state="normal",
@@ -818,15 +830,7 @@ class TranscribblerApp(ctk.CTk):
             else:
                 self._set_spk_led(f"{LED_IDLE} Listening")
 
-        while not self.event_queue.empty():
-            entry = self.event_queue.get_nowait()
-            if entry.id in self._entry_index_by_id:
-                idx = self._entry_index_by_id[entry.id]
-                self.entries[idx] = entry
-            else:
-                self._entry_index_by_id[entry.id] = len(self.entries)
-                self.entries.append(entry)
-            self._render_entry(entry)
+        self._drain_event_queue()
 
         while not self.device_queue.empty():
             self._on_device_lists_refreshed(*self.device_queue.get_nowait())
@@ -1013,7 +1017,8 @@ class TranscribblerApp(ctk.CTk):
             )
             self.mic_header.configure(fg_color=MIC_HEADER_COLOR)
             self._set_mic_led(f"{LED_IDLE} Disabled")
-            self._finalize_pending_interims("ME")
+            if not self.session:
+                self._finalize_pending_interims("ME")
 
         if self.session:
             self.session.set_channel_enabled("ME", self.mic_enabled)
@@ -1033,7 +1038,8 @@ class TranscribblerApp(ctk.CTk):
             )
             self.spk_header.configure(fg_color=SPK_HEADER_COLOR)
             self._set_spk_led(f"{LED_IDLE} Disabled")
-            self._finalize_pending_interims("OTHERS")
+            if not self.session:
+                self._finalize_pending_interims("OTHERS")
 
         if self.session:
             self.session.set_channel_enabled("OTHERS", self.spk_enabled)

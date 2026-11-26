@@ -99,6 +99,7 @@ class Segmenter:
         self.on_final = on_final
         self.on_interim = on_interim
         self.vad = webrtcvad.Vad(aggressiveness)
+        self._lock = threading.Lock()
         self.pending = np.zeros(0, dtype=np.int16)
         self.frames: list[np.ndarray] = []
         self.frame_rms: list[float] = []
@@ -128,6 +129,10 @@ class Segmenter:
         return float(np.sqrt(np.dot(f, f) / len(f))) / 32768.0
 
     def feed(self, pcm16: np.ndarray) -> None:
+        with self._lock:
+            self._feed_locked(pcm16)
+
+    def _feed_locked(self, pcm16: np.ndarray) -> None:
         buf = np.concatenate([self.pending, pcm16]) if len(self.pending) > 0 else pcm16
         n_samples = len(buf)
         offset = 0
@@ -297,18 +302,24 @@ class Segmenter:
         self.current_id = uuid.uuid4().hex[:8]
         self.frames_since_interim = 0
 
+    def flush(self) -> None:
+        """Finalize and emit any buffered in-progress speech (used on Stop or Disable)."""
+        with self._lock:
+            self._flush()
+
     def reset(self) -> None:
         """Clear all buffered frames and reset state (used when muted/disabled)."""
-        self.frames.clear()
-        self.frame_rms.clear()
-        self.pre_buffer.clear()
-        self.pending = np.zeros(0, dtype=np.int16)
-        self.silent = 0
-        self.soft_silent = 0
-        self.speech_rms_ema = 0.0
-        self.started = None
-        self.current_id = ""
-        self.frames_since_interim = 0
+        with self._lock:
+            self.frames.clear()
+            self.frame_rms.clear()
+            self.pre_buffer.clear()
+            self.pending = np.zeros(0, dtype=np.int16)
+            self.silent = 0
+            self.soft_silent = 0
+            self.speech_rms_ema = 0.0
+            self.started = None
+            self.current_id = ""
+            self.frames_since_interim = 0
 
 
 if sys.platform == "win32":
@@ -446,6 +457,7 @@ class Capture:
             self.enabled.set()
         else:
             self.enabled.clear()
+            self.segmenter.flush()
             self.segmenter.reset()
 
     def _callback(self, in_data, frame_count, time_info, status):
@@ -500,3 +512,6 @@ class Capture:
             self.stream.close()
         except Exception:
             pass
+        if self.thread.is_alive() and threading.current_thread() is not self.thread:
+            self.thread.join(timeout=1.0)
+        self.segmenter.flush()

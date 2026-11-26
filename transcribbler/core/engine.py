@@ -74,7 +74,7 @@ class Recognizer:
                     f"  - Fallback (Moonshine): {MOONSHINE_EN_DIR}\n"
                     "Please download sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 (or "
                     "sherpa-onnx-moonshine-base-en-int8) into models/.\n"
-                    "See Section 6.3 in TRANSCRIBBLER_IMPLEMENTATION_v3.md for instructions."
+                    "See README.md (Download Speech Models) for instructions."
                 )
         else:
             self._load_sense_voice(language, threads)
@@ -134,7 +134,7 @@ class Recognizer:
             raise RuntimeError(
                 f"Model files missing at {SENSE_VOICE_DIR}.\n"
                 "Please download the SenseVoice INT8 model package before running.\n"
-                "See Section 6.3 in TRANSCRIBBLER_IMPLEMENTATION_v3.md for instructions."
+                "See README.md (Download Speech Models) for instructions."
             )
 
         self.rec = sherpa_onnx.OfflineRecognizer.from_sense_voice(

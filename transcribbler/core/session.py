@@ -94,6 +94,7 @@ class TranscriptionSession:
         self._work_event = threading.Event()
         self._device_lock = threading.RLock()
         self.stop_event = threading.Event()
+        self._shutdown_worker = threading.Event()
         self.worker_thread: Optional[threading.Thread] = None
 
     def _submit_final(self, u: Utterance) -> None:
@@ -170,6 +171,7 @@ class TranscriptionSession:
         """Initialize audio devices and start capture + recognition threads with atomic cleanup."""
         self.p = pyaudio.PyAudio()
         self.stop_event.clear()
+        self._shutdown_worker.clear()
         self._work_event.clear()
 
         try:
@@ -240,7 +242,7 @@ class TranscriptionSession:
     def _worker_loop(self) -> None:
         """Process finalized (priority FIFO) and interim (drop-stale) utterances."""
         with open(self.out_path, "a", encoding="utf-8") as f:
-            while not self.stop_event.is_set() or not self.q.empty():
+            while not self._shutdown_worker.is_set() or not self.q.empty():
                 u: Optional[Utterance] = None
                 from_fifo = False
 
@@ -279,7 +281,8 @@ class TranscriptionSession:
                     english = ""
                     if self.translator and self.output_mode in ("translate", "all"):
                         if lang == "en":
-                            english = text
+                            if self.output_mode == "translate":
+                                english = text
                         elif u.is_final or (self.tname == "offline" and self.q.empty()):
                             try:
                                 english = self.translator.translate(text, lang)
@@ -344,6 +347,7 @@ class TranscriptionSession:
             self._latest_interim.clear()
             self._last_interim_text.clear()
 
+        self._shutdown_worker.set()
         self._work_event.set()
         if self.worker_thread and self.worker_thread.is_alive():
             self.worker_thread.join(timeout=5.0)

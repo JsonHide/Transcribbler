@@ -63,7 +63,7 @@
   - **Grouped Top Control Bar Clusters**:
     - **Audio & View Cluster**: Combines the compact source filter dropdown (**All Sources**, **Mic Only**, **Speaker Only**) and the one-click segmented view icon toggle (`◫` **Dual Column** / `☰` **Unified Timeline** with hover tooltips) into a unified pill.
     - **Speech Pipeline Cluster**: Houses **`Lang:`** (`auto` | `en`), **`Model:`** (`auto` | `parakeet` | `moonshine`, unlocked when `Lang = en`), and **`Translate:`** (`off` | `offline` | `azure` | `google`) with `Consolas` labels and vertical dividers.
-    - **Document Utilities, Font Scaler & Pin Cluster**: Houses compact font size scaling (`A-` / `14pt` / `A+`), crisp vector icon buttons for **Copy Transcript**, **Save Transcript**, and **Clear Session** (with red hover), and a **Pin (Always on Top)** icon toggle with an active teal indicator dot.
+    - **Document Utilities, Font Scaler & Pin Cluster**: Houses compact font size scaling (`A-` / `14pt` / `A+`), crisp vector icon buttons for **Copy Transcript**, **Save Transcript**, and **Clear Screen** (with red hover), and a **Pin (Always on Top)** icon toggle with an active teal indicator dot.
   - **Two-Line Bottom Status Bar & Pinned Device Controls**:
     - **Left Two-Line Readout**: Displays the active session/ASR/translation status on Line 1 (`Transcribing... [ASR: ... | Translate: ...]`) and the transcript file path on Line 2 (`Output: ...`, with a full-path hover tooltip).
     - **Right Pinned Device Controls**: Keeps the **`Mic:`** and **`Speaker:`** selectors and the **`⟳ Rescan`** button permanently visible on the right regardless of status text or path length.
@@ -94,7 +94,7 @@ Transcribbler/
 │       └── tokens.txt
 ├── transcripts/                               # Auto-created transcript output directory
 ├── transcribbler/
-│   ├── __init__.py                            # Single source of truth for __version__ ("1.0.0")
+│   ├── __init__.py                            # Single source of truth for __version__ ("1.0.1")
 │   ├── config.py                              # Version/title constants, audio settings, paths
 │   ├── core/
 │   │   ├── __init__.py
@@ -235,7 +235,7 @@ python main.py --cli --mic-device 1 --speaker-device 10 --out transcripts/meetin
 
 #### Available CLI Options:
 ```
-  --version                                    Show program's version number (v1.0.0) and exit
+  --version                                    Show program's version number (v1.0.1) and exit
   --translator {ask,offline,azure,google,off}  Translation backend (default: ask)
   --language {auto,en,zh,yue}                  Recognition language: 'auto' (SenseVoice) or 'en' (Parakeet/Moonshine)
   --en-engine {auto,parakeet,moonshine}        Preferred English engine when --language=en (default: auto)
