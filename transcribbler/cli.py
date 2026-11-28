@@ -56,7 +56,11 @@ def run_cli() -> None:
     ap.add_argument(
         "--output-mode", default="all",
         choices=["original", "roman", "translate", "all"],
-        help="Transcript fields to output: original text, romanization, translation, or all (default: all)",
+        help="Transcript fields to output: original text, romanization, translation, or all (default: all; romanization is off unless --romanize or --output-mode roman is set)",
+    )
+    ap.add_argument(
+        "--romanize", action="store_true",
+        help="Include Pinyin (zh) / Jyutping (yue) romanization lines (off by default)",
     )
     ap.add_argument(
         "--threads", type=int, default=4,
@@ -129,6 +133,7 @@ def run_cli() -> None:
             enable_mic=not args.no_mic,
             enable_speaker=not args.no_speaker,
             enable_interim=False,
+            enable_romanization=args.romanize,
             segmenter_kwargs=CLI_SEGMENTER_KWARGS,
             output_path=Path(args.out) if args.out else None,
             on_entry=print_entry,

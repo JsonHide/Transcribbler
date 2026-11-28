@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import queue
+import sys
 import tempfile
 import threading
 import unittest
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 
@@ -15,6 +16,7 @@ from transcribbler.config import FRAME_SAMPLES, TARGET_SR
 from transcribbler.core.audio import Segmenter
 from transcribbler.core.events import TranscriptEntry, Utterance
 from transcribbler.core.session import TranscriptionSession
+from transcribbler.ui.components import format_entry_block
 
 
 def _make_speech_frame(amplitude: int = 8000) -> np.ndarray:
@@ -152,6 +154,98 @@ class TestEnglishTranslationOmission(unittest.TestCase):
         self.assertEqual(received[0].translation, "Please everyone")
         self.assertIn("EN:       Please everyone", disk_text)
         translator.translate.assert_called_once_with("唔該大家", "yue")
+
+
+class TestRomanizationDefaultOff(unittest.TestCase):
+    """Ensure Jyutping/Pinyin romanization is disabled by default and opt-in only."""
+
+    def _run_chinese_once(
+        self,
+        text: str,
+        lang: str,
+        output_mode: str = "all",
+        enable_romanization: bool = False,
+    ):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = Path(tmpdir) / "transcript_test.txt"
+            received: list[TranscriptEntry] = []
+
+            session = TranscriptionSession(
+                translator_choice="off",
+                output_mode=output_mode,
+                enable_mic=False,
+                enable_speaker=False,
+                enable_romanization=enable_romanization,
+                output_path=out_path,
+                on_entry=received.append,
+            )
+            session.rec = MagicMock()
+            session.rec.run.return_value = (text, lang)
+
+            session.worker_thread = threading.Thread(target=session._worker_loop, daemon=True)
+            session.worker_thread.start()
+
+            session._submit_final(
+                Utterance(
+                    source="OTHERS",
+                    audio=np.zeros(FRAME_SAMPLES, dtype=np.float32),
+                    started=datetime(2026, 1, 1, 12, 0, 0),
+                    is_final=True,
+                )
+            )
+            session.stop()
+
+            return received, out_path.read_text(encoding="utf-8")
+
+    @patch("transcribbler.core.session.romanize")
+    def test_cantonese_and_mandarin_skip_romanize_by_default(self, mock_romanize):
+        for text, lang, label in (
+            ("唔該大家", "yue", "Jyutping:"),
+            ("你好世界", "zh", "Pinyin:"),
+        ):
+            with self.subTest(lang=lang):
+                received, disk_text = self._run_chinese_once(text, lang)
+                self.assertEqual(len(received), 1)
+                self.assertIsNone(received[0].roman)
+                self.assertNotIn(label, disk_text)
+                self.assertNotIn(label, format_entry_block(received[0], include_source=True))
+        mock_romanize.assert_not_called()
+
+    def test_romanization_opt_in_emits_jyutping_and_pinyin(self):
+        yue_entries, yue_disk = self._run_chinese_once("唔該大家", "yue", enable_romanization=True)
+        self.assertTrue(yue_entries[0].roman)
+        self.assertIn("Jyutping:", yue_disk)
+
+        zh_entries, zh_disk = self._run_chinese_once("你好", "zh", enable_romanization=True)
+        self.assertTrue(zh_entries[0].roman)
+        self.assertIn("Pinyin:", zh_disk)
+
+    def test_output_mode_roman_still_emits_romanization(self):
+        entries, disk_text = self._run_chinese_once(
+            "唔該大家", "yue", output_mode="roman", enable_romanization=False
+        )
+        self.assertTrue(entries[0].roman)
+        self.assertIn("Jyutping:", disk_text)
+
+    @patch("transcribbler.cli.TranscriptionSession")
+    def test_cli_romanize_flag_default_and_opt_in(self, mock_session_cls):
+        from transcribbler.cli import run_cli
+
+        mock_session = MagicMock()
+        mock_session.stop_event.is_set.return_value = True
+        mock_session.engine_name = "SenseVoice-Small (int8)"
+        mock_session.tname = "off"
+        mock_session.out_path = Path("transcripts/test.txt")
+        mock_session_cls.return_value = mock_session
+
+        with patch.object(sys, "argv", ["main.py", "--translator", "off"]):
+            run_cli()
+        self.assertFalse(mock_session_cls.call_args.kwargs["enable_romanization"])
+
+        mock_session_cls.reset_mock()
+        with patch.object(sys, "argv", ["main.py", "--translator", "off", "--romanize"]):
+            run_cli()
+        self.assertTrue(mock_session_cls.call_args.kwargs["enable_romanization"])
 
 
 if __name__ == "__main__":

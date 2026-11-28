@@ -58,6 +58,7 @@ class TranscriptionSession:
         enable_mic: bool = True,
         enable_speaker: bool = True,
         enable_interim: bool = True,
+        enable_romanization: bool = False,
         segmenter_kwargs: Optional[dict[str, Any]] = None,
         output_path: Optional[Path] = None,
         on_entry: Optional[Callable[[TranscriptEntry], None]] = None,
@@ -73,6 +74,7 @@ class TranscriptionSession:
         self.enable_mic = enable_mic
         self.enable_speaker = enable_speaker
         self.enable_interim = enable_interim
+        self.enable_romanization = enable_romanization
         self._segmenter_kwargs = dict(segmenter_kwargs) if segmenter_kwargs else {}
         self.on_entry = on_entry
         self.on_activity = on_activity
@@ -284,7 +286,11 @@ class TranscriptionSession:
                         if self._last_interim_text.get(u.source, ("", ""))[0] == u.utterance_id:
                             self._last_interim_text.pop(u.source, None)
 
-                    roman = romanize(text, lang)
+                    roman = (
+                        romanize(text, lang)
+                        if (self.enable_romanization or self.output_mode == "roman")
+                        else None
+                    )
                     english = ""
                     if self.translator and self.output_mode in ("translate", "all"):
                         if lang == "en":

@@ -22,7 +22,7 @@
 ```
 
 > *It listens, it scribbles.*  
-> Real-time multilingual speech-to-text on Windows (CPU-only, no NVIDIA GPU required) capturing both your **microphone** and **system audio / speakers** (via WASAPI loopback) with live translation, romanization, and a modern desktop interface.
+> Real-time multilingual speech-to-text on Windows (CPU-only, no NVIDIA GPU required) capturing both your **microphone** and **system audio / speakers** (via WASAPI loopback) with live translation, optional romanization, and a modern desktop interface.
 
 ---
 
@@ -42,19 +42,19 @@
   - **Adaptive Clause Splitting, Lowest-RMS Carry-Over & Lossless Decimation**: Adaptive micro-pause detection splits long speech naturally at clause boundaries; continuous non-stop speech splits at the lowest-energy syllable boundary with frame context carry-over and remainder-preserving 48 kHz → 16 kHz decimation to avoid cutting words or dropping samples.
 - 🚀 **Optimized Startup & Low-Overhead Runtime**:
   - **Non-Blocking Async Model Loading**: Starts ASR and translation engines on a background thread so the desktop UI stays smooth and responsive while loading models.
-  - **Lazy Romanizer Initialization & LRU Caching**: Defers `pycantonese` and `pypinyin` corpus loading until Chinese/Cantonese speech is detected (cutting cold startup time by ~40%) and caches romanization and offline translation lookups.
+  - **Lazy Romanizer Initialization & LRU Caching**: Romanization is disabled by default so `pycantonese` and `pypinyin` are never loaded unless explicitly opted in via CLI (`--romanize` or `--output-mode roman`), with LRU caching on romanization and offline translation lookups.
   - **Persistent Cloud Sessions & Diff-Guarded UI**: Reuses HTTP keep-alive TLS connections for Azure/Google translation, skips off-screen hidden view updates, and uses lock-free timestamp tracking for 20 Hz VAD activity LEDs.
 - 🎙️ **Dual-Channel Audio Capture**:
   - **Microphone (`ME`)**: Captures your local microphone voice.
   - **System Loopback (`OTHERS`)**: Directly captures speaker and headset audio (meetings, Zoom, Teams, YouTube, browser calls) without requiring virtual audio cables.
 - 🌐 **Language-Driven Dual-Engine ASR Selector (`sherpa-onnx`, INT8 CPU)**:
-  - **`Lang = auto` (Multilingual / Cantonese / Mandarin)**: Loads **SenseVoice-Small (INT8)** via `OfflineRecognizer.from_sense_voice(use_itn=True)` for instantaneous trilingual switching (`en`, `zh`, `yue`), `<|yue|>` tag detection, and full compatibility with local Pinyin / Jyutping romanization.
+  - **`Lang = auto` (Multilingual / Cantonese / Mandarin)**: Loads **SenseVoice-Small (INT8)** via `OfflineRecognizer.from_sense_voice(use_itn=True)` for instantaneous trilingual switching (`en`, `zh`, `yue`), `<|yue|>` tag detection, and optional local Pinyin / Jyutping romanization.
   - **`Lang = en` (English Meetings & Podcasts)**: Dynamically routes to **NeMo Parakeet-TDT-0.6B-v2 (INT8)** (`OfflineRecognizer.from_transducer(model_type="nemo_transducer")`) as the primary engine—with automatic fallback to **Moonshine-Base-EN (INT8)** (`OfflineRecognizer.from_moonshine`) for ultra-low-end PCs—delivering near-instantaneous CPU decoding with top-tier conversational English accuracy, native capitalization, and punctuation. You can also explicitly pick **`auto`**, **`parakeet`**, or **`moonshine`** right from the GUI's **`Model:`** dropdown (or via `--en-engine` in CLI).
-- 🔤 **Automatic Romanization**:
-  - **Mandarin**: Tone-marked Pinyin (via `pypinyin`).
-  - **Cantonese**: Accurate Jyutping romanization (via `pycantonese`).
+- 🔤 **Optional Romanization (Off by Default)**:
+  - Disabled by default in both GUI and CLI for cleaner Chinese transcripts.
+  - Opt in via CLI (`--romanize` or `--output-mode roman`) for tone-marked **Pinyin** (`zh`, via `pypinyin`) and **Jyutping** (`yue`, via `pycantonese`).
 - 🌍 **Translation Options**:
-  - **Off**: Fast transcription & romanization only. Completely suppresses redundant `EN:` translation lines for cleaner output.
+  - **Off**: Fast transcription only. Completely suppresses redundant `EN:` translation lines for cleaner output.
   - **Offline (Argos Translate + OpenCC)**: 100% private, on-device translation from Chinese to English with zero network requests.
   - **Cloud (Azure Translator / Google Cloud Translation)**: Dedicated high-quality Cantonese (`yue`) and Mandarin (`zh`) translation to English.
 - 🖥️ **Modern Desktop GUI (CustomTkinter)**:
@@ -94,7 +94,7 @@ Transcribbler/
 │       └── tokens.txt
 ├── transcripts/                               # Auto-created transcript output directory
 ├── transcribbler/
-│   ├── __init__.py                            # Single source of truth for __version__ ("1.1.1")
+│   ├── __init__.py                            # Single source of truth for __version__ ("1.1.2")
 │   ├── config.py                              # Version/title constants, audio settings, paths
 │   ├── core/
 │   │   ├── __init__.py
@@ -199,7 +199,7 @@ python main.py
 ```
 ![alt text](gui.png)
 - **Start Capture**: Click **▶ Start** to begin listening to your mic and system audio.
-- **Select Language, English Engine & Cantonese Script (`Lang:`, `Model:` & `Yue:`)**: Choose **`auto`** for multilingual SenseVoice-Small (English, Cantonese, Mandarin with Pinyin/Jyutping) or **`en`** for dedicated English meetings and podcasts. When **`Lang = auto`**, the **`Yue:`** dropdown lets you toggle Cantonese (`yue`) output live between **`Trad`** (Hong Kong Traditional Chinese, default) and **`Simp`** (raw Simplified Chinese). Selecting **`en`** unlocks the **`Model:`** dropdown where you can choose **`auto`** (Parakeet with Moonshine fallback), **`parakeet`** (NeMo Parakeet-TDT-0.6B-v2), or **`moonshine`** (Moonshine-Base-EN). The active ASR engine is displayed in the bottom status bar.
+- **Select Language, English Engine & Cantonese Script (`Lang:`, `Model:` & `Yue:`)**: Choose **`auto`** for multilingual SenseVoice-Small (English, Cantonese, Mandarin) or **`en`** for dedicated English meetings and podcasts. When **`Lang = auto`**, the **`Yue:`** dropdown lets you toggle Cantonese (`yue`) output live between **`Trad`** (Hong Kong Traditional Chinese, default) and **`Simp`** (raw Simplified Chinese). Selecting **`en`** unlocks the **`Model:`** dropdown where you can choose **`auto`** (Parakeet with Moonshine fallback), **`parakeet`** (NeMo Parakeet-TDT-0.6B-v2), or **`moonshine`** (Moonshine-Base-EN). The active ASR engine is displayed in the bottom status bar.
 - **Channel Mute / Pause**: Click **`[Disable]`** or **`[Enable]`** directly in either the `Microphone (ME)` or `Speaker / System (OTHERS)` header to pause or resume capturing that channel live without stopping the session.
 - **Switch Views & Filter Sources**: Inside the left **Audio & View Cluster**, pick **All Sources**, **Mic Only**, or **Speaker Only** from the filter dropdown, or click the segmented view icon toggle (`◫` on the left for **Dual Column**, `☰` on the right for **Unified Timeline**; hover either icon for a tooltip).
 - **Refresh / Switch Audio Devices & Two-Line Status Bar**: The bottom bar shows live engine/translation telemetry on Line 1 and the active `Output:` file path on Line 2 (with a hover tooltip for the full path), while pinning the **Mic:** / **Speaker:** dropdowns and **⟳ Rescan** button on the right so they are always accessible. Newly connected USB or Bluetooth headsets appear automatically within ~3 seconds, and you can switch devices live mid-session without stopping transcription.
@@ -235,12 +235,13 @@ python main.py --cli --mic-device 1 --speaker-device 10 --out transcripts/meetin
 
 #### Available CLI Options:
 ```
-  --version                                    Show program's version number (v1.1.1) and exit
+  --version                                    Show program's version number (v1.1.2) and exit
   --translator {ask,offline,azure,google,off}  Translation backend (default: ask)
   --language {auto,en,zh,yue}                  Recognition language: 'auto' (SenseVoice) or 'en' (Parakeet/Moonshine)
   --en-engine {auto,parakeet,moonshine}        Preferred English engine when --language=en (default: auto)
   --yue-script {traditional,simplified}        Chinese script for Cantonese (yue) output: 'traditional' (default) or 'simplified'
-  --output-mode {original,roman,translate,all} Fields to output (default: all)
+  --output-mode {original,roman,translate,all} Fields to output (default: all; romanization off unless --romanize or --output-mode roman)
+  --romanize                                   Include Pinyin (zh) / Jyutping (yue) romanization lines (off by default)
   --threads THREADS                            CPU threads for ONNX ASR (default: 4)
   --no-mic                                     Disable microphone capture
   --no-speaker                                 Disable system loopback capture
@@ -276,7 +277,6 @@ Transcripts are written to both the interface and `transcripts/transcript_YYYYMM
 ```text
 [14:02:11] [ME] (yue)
   Text:     唔該大家睇睇今日個報告
-  Jyutping: m4 goi1 daai6 gaa1 tai2 tai2 gam1 jat6 go3 bou3 gou3
   EN:       Please everyone take a look at today's report.
 
 [14:02:15] [OTHERS] (en)
@@ -284,16 +284,18 @@ Transcripts are written to both the interface and `transcripts/transcript_YYYYMM
 
 [14:02:28] [OTHERS] (zh)
   Text:     好的，我们现在开始讨论第二项议题
-  Pinyin:   hǎo de, wǒ men xiàn zài kāi shǐ tǎo lùn dì èr xiàng yì tí
   EN:       Alright, let's now discuss the second agenda item.
 ```
 
-*(Note: When Translation is set to `off`, the `EN:` translation lines are completely omitted for cleaner transcripts).*
+*(Note: When Translation is set to `off`, the `EN:` translation lines are completely omitted. `Pinyin:` / `Jyutping:` romanization lines are disabled by default and can be enabled in CLI mode via `--romanize` or `--output-mode roman`.)*
 
 ---
 
 ## Release Highlights
 
+- **Romanization Disabled by Default & Opt-In CLI Flag (v1.1.2)**:
+  - **Cleaner Chinese Transcripts**: Disabled `Jyutping:` (Cantonese) and `Pinyin:` (Mandarin) romanization by default across the GUI, CLI, and saved `transcripts/*.txt` files (`enable_romanization=False`). `pycantonese` and `pypinyin` are no longer imported unless explicitly opted in.
+  - **Opt-In CLI Support**: Added `--romanize` to the CLI (or `--output-mode roman`) for users who still want romanized output, and updated GUI tooltips and unit tests accordingly.
 - **Hong Kong Traditional Chinese for Cantonese (`yue`) + Live Script Toggle (v1.1.1)**:
   - **HK Traditional Cantonese Output**: Automatically converts SenseVoice's Simplified Cantonese (`yue`) output to Hong Kong Traditional Chinese via `OpenCC("s2hk")` with targeted Cantonese phrase fixes (`系咪` → `係咪`, `都系` → `都係`, `就系` → `就係`, `翻去` → `返去`, etc.) while preserving standard words like `系統`, `關係`, and `翻譯`. This also restores complete Jyutping romanization coverage in `pycantonese`.
   - **CLI Flag & Live GUI Toggle**: Added `--yue-script {traditional,simplified}` (default: `traditional`) to the CLI and a `Yue:` (`Trad` / `Simp`) selector in the GUI pipeline bar that updates active sessions live without reloading the model.

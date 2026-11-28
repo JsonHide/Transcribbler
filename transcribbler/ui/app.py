@@ -62,7 +62,7 @@ import pyaudiowpatch as pyaudio
 
 RESCAN_TOOLTIP = "Rescan audio devices — detect newly plugged-in USB / Bluetooth headsets"
 LANG_TOOLTIP = (
-    "auto: SenseVoice-Small (Multilingual EN / Cantonese / Mandarin + Romanization)\n"
+    "auto: SenseVoice-Small (Multilingual EN / Cantonese / Mandarin)\n"
     "en: Parakeet-TDT-0.6B-v2 / Moonshine (English Meetings & Podcasts)"
 )
 EN_ENGINE_TOOLTIP = (
@@ -73,7 +73,7 @@ EN_ENGINE_TOOLTIP = (
 )
 YUE_SCRIPT_TOOLTIP = (
     "Chinese script for Cantonese (yue) transcripts (when Lang = auto)\n"
-    "Trad: Hong Kong Traditional Chinese (recommended, improves Jyutping)\n"
+    "Trad: Hong Kong Traditional Chinese (default)\n"
     "Simp: Raw Simplified Chinese from SenseVoice"
 )
 
